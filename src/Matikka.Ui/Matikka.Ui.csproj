@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    Kaikki näkymät ja tyylit. Sama kirjasto ajetaan MAUI-sovelluksessa (BlazorWebView)
+    ja kehityksen aikana selaimessa (dev/Matikka.DevHost), joten käyttöliittymää voi
+    kehittää ilman emulaattoria.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(MatikkaTargetFramework)</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Matikka.Core\Matikka.Core.csproj" />
+    <ProjectReference Include="..\Matikka.Client\Matikka.Client.csproj" />
+  </ItemGroup>
+
+</Project>

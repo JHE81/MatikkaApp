@@ -1,0 +1,71 @@
+@*
+    Ohjelman lohkot. Toisto-lohkon sisältö piirretään tällä samalla komponentilla, joten
+    toistot voivat olla sisäkkäin. Napautus poistaa tavallisen lohkon; toistossa kerrat
+    vaihtuvat lukua napauttamalla ja sisältö aktivoituu runkoa napauttamalla.
+*@
+<div class="blocks @(IsActive ? "blocks--active" : "")" @onclick="Activate" @onclick:stopPropagation>
+    @foreach (var block in Blocks)
+    {
+        var b = block;
+        string state = b.Id == CurrentId ? "is-current" : b.Id == FailedId ? "is-failed" : "";
+
+        @if (b.Kind == CommandKind.Repeat)
+        {
+            <div class="block-repeat @state">
+                <div class="block-repeat__head">
+                    <CommandIcon Kind="CommandKind.Repeat" />
+                    <button type="button" class="block-repeat__count" disabled="@(!Editable)"
+                            aria-label="@($"Toistokerrat {b.Count}, vaihda")" @onclick="() => OnCycle.InvokeAsync(b)" @onclick:stopPropagation>
+                        @(b.Count)×
+                    </button>
+                    @if (Editable)
+                    {
+                        <button type="button" class="block-repeat__remove" aria-label="Poista toisto"
+                                @onclick="() => OnRemove.InvokeAsync(b)" @onclick:stopPropagation>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" /></svg>
+                        </button>
+                    }
+                </div>
+                <BlockList Blocks="b.Body" Active="Active" CurrentId="CurrentId" FailedId="FailedId" Editable="Editable"
+                           EmptyText="Lisää toistettavat lohkot" OnActivate="OnActivate" OnRemove="OnRemove" OnCycle="OnCycle" />
+            </div>
+        }
+        else
+        {
+            <button type="button" class="block block--@b.Kind.ToString().ToLowerInvariant() @state" disabled="@(!Editable)"
+                    aria-label="@($"{CommandIcon.Name(b.Kind)}, poista")" @onclick="() => OnRemove.InvokeAsync(b)" @onclick:stopPropagation>
+                <CommandIcon Kind="b.Kind" />
+            </button>
+        }
+    }
+
+    @if (Blocks.Count == 0)
+    {
+        <span class="blocks__placeholder">@EmptyText</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<Block> Blocks { get; set; } = default!;
+
+    /// <summary>Säiliö, johon uudet lohkot lisätään.</summary>
+    [Parameter] public List<Block>? Active { get; set; }
+
+    [Parameter] public int? CurrentId { get; set; }
+
+    [Parameter] public int? FailedId { get; set; }
+
+    [Parameter] public bool Editable { get; set; } = true;
+
+    [Parameter] public string EmptyText { get; set; } = "Lisää lohkoja";
+
+    [Parameter] public EventCallback<List<Block>> OnActivate { get; set; }
+
+    [Parameter] public EventCallback<Block> OnRemove { get; set; }
+
+    [Parameter] public EventCallback<Block> OnCycle { get; set; }
+
+    private bool IsActive => ReferenceEquals(Active, Blocks);
+
+    private Task Activate() => Editable ? OnActivate.InvokeAsync(Blocks) : Task.CompletedTask;
+}

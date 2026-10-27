@@ -1,0 +1,48 @@
+@inject ProgressService Progress
+@inject NavigationManager Navigation
+
+@* Pelin tasolista: avoimet tasot, parhaat tähdet ja lukitut tasot. Yhteinen kaikille peleille. *@
+<a class="btn btn--primary btn--block btn--big" href="@PlayUrl">Pelaa sopivaa tasoa</a>
+
+@if (_model != null)
+{
+    <ol class="level-list" aria-label="Tasot">
+        @foreach (var level in Game.Levels)
+        {
+            bool unlocked = level.Number <= _unlocked;
+            var stats = _model.GetLevel(Game.GameId, level.Number);
+            <li>
+                <button type="button" class="btn level" disabled="@(!unlocked)"
+                        @onclick="() => Navigation.NavigateTo(LevelUrl(level.Number))">
+                    <span class="level__number">@level.Number</span>
+                    <span>
+                        <span class="level__name">@level.Name</span>
+                        <span class="level__desc">@(unlocked ? level.Description : "Ratkaise edellinen taso")</span>
+                    </span>
+                    @if (unlocked)
+                    {
+                        <Stars Count="stats.BestStars" />
+                    }
+                </button>
+            </li>
+        }
+    </ol>
+}
+
+@code {
+    [Parameter, EditorRequired] public GameInfo Game { get; set; } = default!;
+
+    /// <summary>Pelinäkymän osoite ilman tasonumeroa, esim. "yhtalovaaka/pelaa".</summary>
+    [Parameter, EditorRequired] public string PlayUrl { get; set; } = "";
+
+    private string LevelUrl(int level) => $"{PlayUrl}/{level}";
+
+    private ProgressModel? _model;
+    private int _unlocked;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _model = await Progress.GetModelAsync();
+        _unlocked = LevelSelector.HighestUnlocked(Game, _model);
+    }
+}

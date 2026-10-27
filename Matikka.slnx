@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/dev/">
+    <Project Path="dev/Matikka.DevHost/Matikka.DevHost.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Matikka.Api/Matikka.Api.csproj" />
+    <Project Path="src/Matikka.App/Matikka.App.csproj" />
+    <Project Path="src/Matikka.Client/Matikka.Client.csproj" />
+    <Project Path="src/Matikka.Core/Matikka.Core.csproj" />
+    <Project Path="src/Matikka.Ui/Matikka.Ui.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Matikka.Api.Tests/Matikka.Api.Tests.csproj" />
+    <Project Path="tests/Matikka.Client.Tests/Matikka.Client.Tests.csproj" />
+    <Project Path="tests/Matikka.Core.Tests/Matikka.Core.Tests.csproj" />
+  </Folder>
+</Solution>

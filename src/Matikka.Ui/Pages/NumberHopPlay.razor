@@ -1,0 +1,255 @@
+@page "/lukusuora/pelaa"
+@page "/lukusuora/pelaa/{Level:int}"
+@inject ProgressService Progress
+@inject CharacterService Characters
+
+@if (_session == null)
+{
+    return;
+}
+
+<div class="hud">
+    <span class="hud__level">Taso @_level.Number: @_level.Name</span>
+    <span class="hud__moves" title="Kortit / kolmen tähden raja">@_session.MoveCount / @_session.Puzzle.Par</span>
+</div>
+
+<section class="card hop-goal">
+    <span class="hop-goal__item">
+        <span class="hop-goal__label">Nyt</span>
+        <span class="hop-goal__value">@NumberCard.Num(_session.Current)</span>
+    </span>
+    <svg class="hop-goal__arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+    <span class="hop-goal__item">
+        <span class="hop-goal__label">Tavoite</span>
+        <span class="hop-goal__value hop-goal__value--target">@NumberCard.Num(_session.Puzzle.Target)</span>
+    </span>
+</section>
+
+<section class="card nline-card">
+    <NumberLine Value="_session.Current" Target="_session.Puzzle.Target" Lo="_lo" Hi="_hi" Hops="_hops"
+                CharacterId="@_characterId" HopVersion="_hopVersion" MirrorFlash="_mirror" MirrorVersion="_hopVersion" />
+</section>
+
+<div class="hop-log" aria-live="polite">
+    @if (_message != null)
+    {
+        <span class="@(_messageIsError ? "hop-log__error" : "hop-log__hint")">@_message</span>
+    }
+    else if (_session.Moves.Count > 0)
+    {
+        var last = _session.Moves[^1];
+        <span class="hop-log__calc">@last.Card.Describe(last.Before, last.After)</span>
+    }
+    else
+    {
+        <span class="muted">@IntroText</span>
+    }
+</div>
+
+@if (_session.IsSolved)
+{
+    <section class="card solved" aria-live="assertive">
+        <h2>Perillä!</h2>
+        <Stars Count="_session.Stars" Big="true" />
+        <p class="hop-solution">@string.Join("   ", _session.Moves.Select(m => m.Card.Describe(m.Before, m.After)))</p>
+        <p class="muted">@SolvedComment</p>
+        <button type="button" class="btn btn--primary btn--block btn--big" @onclick="NextPuzzle">Seuraava pulma</button>
+        <a class="btn btn--ghost btn--block" href="lukusuora">Tasot</a>
+    </section>
+}
+else if (_session.IsDeadEnd)
+{
+    <section class="card dead-end" role="alert">
+        <p><strong>Näillä korteilla ei enää pääse tavoitteeseen.</strong> Kumoa kortteja tai aloita alusta.</p>
+        <div class="segmented">
+            <button type="button" class="btn" @onclick="Undo">Kumoa</button>
+            <button type="button" class="btn btn--primary" @onclick="Restart">Alusta</button>
+        </div>
+    </section>
+}
+else
+{
+    <div class="hop-hand" aria-label="Laskukortit">
+        @foreach (var card in _session.Puzzle.Hand)
+        {
+            var c = card;
+            bool used = _session.Moves.Any(m => m.Card.Id == c.Id);
+            <button type="button" class="hop-card @(used ? "is-used" : "") @(_hintId == c.Id ? "is-hint" : "") @(_wrongId == c.Id ? WrongCss : "")"
+                    disabled="@used" aria-label="@($"Kortti {c.Label}")" @onclick="() => Play(c)">
+                @c.Label
+            </button>
+        }
+    </div>
+
+    <div class="tools">
+        <button type="button" class="btn" disabled="@(!_session.CanUndo)" @onclick="Undo">Kumoa</button>
+        <button type="button" class="btn" disabled="@(_session.MoveCount == 0)" @onclick="Restart">Alusta</button>
+        <button type="button" class="btn" @onclick="Hint">Vihje</button>
+        <button type="button" class="btn btn--ghost" @onclick="Skip">Ohita</button>
+    </div>
+}
+
+@code {
+    private static readonly GameInfo Game = NumberHopGame.Info;
+
+    private NumberHopSession? _session;
+    private LevelInfo _level = Game.Levels[0];
+    private string _characterId = CharacterService.DefaultCharacter;
+    private List<(int From, int To)> _hops = new();
+    private int _lo = -10;
+    private int _hi = 10;
+    private int _hopVersion;
+    private bool _mirror;
+    private int? _hintId;
+    private int? _wrongId;
+    private int _wrongVersion;
+    private string? _message;
+    private bool _messageIsError;
+    private bool _recorded;
+    private int? _startedFor = -1;
+    private readonly Stopwatch _timer = new();
+    private readonly SeededRandom _random = new(Random.Shared.NextInt64());
+
+    /// <summary>Kiinteä taso tasolistasta. Null = valitaan adaptiivisesti.</summary>
+    [Parameter] public int? Level { get; set; }
+
+    private string WrongCss => _wrongVersion % 2 == 0 ? "shake-a" : "shake-b";
+
+    private string IntroText => _session!.Puzzle.Level switch
+    {
+        1 => "Napauta korttia: hahmo hyppää sen verran. Kortin voi käyttää kerran.",
+        2 => "Negatiivisen luvun vähentäminen vie oikealle, lisääminen vasemmalle.",
+        3 => "Negatiivisella kertominen peilaa hahmon nollan toiselle puolelle.",
+        4 => "Jakaminen negatiivisella vaihtaa myös puolta. Jaon pitää mennä tasan.",
+        5 => "Negatiivisen luvun neliö on positiivinen, kuutio negatiivinen.",
+        _ => "Kaikki laskutoimitukset mukana. Mieti järjestys ennen kuin pelaat.",
+    };
+
+    private string SolvedComment => _session!.Stars switch
+    {
+        3 when _session.MoveCount < _session.Puzzle.Par => "Lyhyempi kuin malliratkaisu!",
+        3 => "Vähimmällä mahdollisella korttimäärällä.",
+        2 when _session.HintsUsed > 0 => "Vihjeellä enintään kaksi tähteä.",
+        _ => $"Tavoitteeseen pääsee {_session.Puzzle.Par} kortilla. Löydätkö reitin?",
+    };
+
+    protected override async Task OnInitializedAsync() => _characterId = (await Characters.GetAsync()).Id;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_startedFor == Level && _session != null)
+            return;
+
+        _startedFor = Level;
+        await NextPuzzle();
+    }
+
+    private async Task NextPuzzle()
+    {
+        ProgressModel model = await Progress.GetModelAsync();
+
+        int number = Level is { } fixedLevel && LevelSelector.IsUnlocked(Game, model, fixedLevel)
+            ? fixedLevel
+            : Level.HasValue
+                ? LevelSelector.HighestUnlocked(Game, model)
+                : LevelSelector.ChooseNext(Game, model, _random);
+
+        _level = Game.GetLevel(number);
+        _session = new NumberHopSession(NumberHopGenerator.Generate(number, _random.NextSeed()));
+        _recorded = false;
+        Sync(resetWindow: true);
+        _timer.Restart();
+    }
+
+    private void Play(NumberCard card)
+    {
+        _hintId = null;
+        int before = _session!.Current;
+        CardError error = _session.TryPlay(card.Id);
+        if (error != CardError.None)
+        {
+            _wrongId = card.Id;
+            _wrongVersion++;
+            _messageIsError = true;
+            _message = error == CardError.NotDivisible
+                ? $"{NumberCard.Num(before)} {card.Label} ei mene tasan. Kokeile ensin jotain muuta korttia."
+                : $"Hyppy veisi lukusuoran ulkopuolelle (yli ±{NumberCard.Range}).";
+            return;
+        }
+
+        _mirror = card.Op is CardOp.Multiply or CardOp.Divide && card.Operand < 0 && before != 0;
+        Sync(resetWindow: false);
+        _hopVersion++;
+
+        if (_session.IsSolved)
+            _ = RecordAsync(GameOutcome.Solved);
+    }
+
+    private void Undo()
+    {
+        if (_session!.Undo())
+            Sync(resetWindow: false);
+    }
+
+    private void Restart()
+    {
+        _session!.Restart();
+        Sync(resetWindow: false);
+    }
+
+    private void Hint()
+    {
+        NumberCard? card = _session!.TakeHint();
+        if (card == null)
+            return;
+        _hintId = card.Id;
+        _messageIsError = false;
+        _message = $"Vihje: pelaa seuraavaksi kortti {card.Label}.";
+    }
+
+    /// <summary>Päivittää hyppykaaret ja lukusuoran näkyvän välin.</summary>
+    private void Sync(bool resetWindow)
+    {
+        _hops = _session!.Moves.Select(m => (m.Before, m.After)).ToList();
+        _message = null;
+        _messageIsError = false;
+        _wrongId = null;
+        _hintId = null;
+        if (resetWindow || _session.Moves.Count == 0)
+            _mirror = false;
+
+        var values = new List<int> { 0, _session.Puzzle.Start, _session.Puzzle.Target, _session.Current };
+        values.AddRange(_session.Moves.Select(m => m.After));
+        int lo = values.Min() - 2;
+        int hi = values.Max() + 2;
+        if (hi - lo < 20)
+        {
+            int extra = 20 - (hi - lo);
+            lo -= extra / 2;
+            hi += extra - extra / 2;
+        }
+
+        // Näkyvä väli vain laajenee pulman aikana, jotta lukusuora ei hypi edestakaisin.
+        _lo = resetWindow ? lo : Math.Min(_lo, lo);
+        _hi = resetWindow ? hi : Math.Max(_hi, hi);
+    }
+
+    private async Task Skip()
+    {
+        await RecordAsync(GameOutcome.Skipped);
+        await NextPuzzle();
+    }
+
+    private async Task RecordAsync(GameOutcome outcome)
+    {
+        if (_recorded)
+            return;
+        _recorded = true;
+        _timer.Stop();
+
+        GameEvent e = _session!.ToEvent(outcome, Guid.NewGuid(), _timer.ElapsedMilliseconds, Progress.Clock.GetLocalNow());
+        await Progress.RecordAsync(e);
+    }
+}

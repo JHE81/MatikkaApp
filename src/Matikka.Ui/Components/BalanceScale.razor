@@ -1,0 +1,135 @@
+@*
+    Vaaka, jonka kupeissa yhtälön puolet. x on neliö, luku on ympyrä. Negatiiviset palat ovat
+    onttoja miinusmerkillä, joten merkitys ei ole pelkän värin varassa. Vaaka on aina
+    tasapainossa – se on yhtälön idea. Siirron jälkeen se heilahtaa, jotta muutos huomataan.
+*@
+<div class="scale-wrap">
+    <svg class="scale @(MoveVersion > 0 ? "scale--moved" : "")" @key="MoveVersion"
+         viewBox="0 0 360 196" role="img" aria-label="@($"Vaaka: {Equation}")">
+
+        <rect x="140" y="182" width="80" height="8" rx="4" fill="var(--beam)" opacity="0.25" />
+        <rect x="176" y="44" width="8" height="142" rx="4" fill="var(--beam)" opacity="0.85" />
+
+        <g class="scale__beam">
+            <rect x="48" y="40" width="264" height="8" rx="4" fill="var(--beam)" />
+
+            @foreach (var side in new[] { (Cx: 72, Expr: Equation.Left), (Cx: 288, Expr: Equation.Right) })
+            {
+                <line x1="@F(side.Cx)" y1="44" x2="@F(side.Cx - 54)" y2="160" stroke="var(--beam)" stroke-opacity="0.3"
+                      stroke-width="2" stroke-linecap="round" />
+                <line x1="@F(side.Cx)" y1="44" x2="@F(side.Cx + 54)" y2="160" stroke="var(--beam)" stroke-opacity="0.3"
+                      stroke-width="2" stroke-linecap="round" />
+                <circle cx="@F(side.Cx)" cy="44" r="5" fill="var(--beam)" />
+
+                <path d="@PanPath(side.Cx)" fill="var(--accent-soft)" />
+                <line x1="@F(side.Cx - 62)" y1="160" x2="@F(side.Cx + 62)" y2="160" stroke="var(--beam)"
+                      stroke-width="3" stroke-linecap="round" />
+
+                @foreach (var t in Layout(side.Cx, side.Expr))
+                {
+                    @if (t.Shape == Shape.Square)
+                    {
+                        <rect x="@F(t.X)" y="@F(t.Y)" width="@F(t.W)" height="@F(t.H)" rx="@F(t.H / 4)"
+                              fill="@(t.Negative ? "var(--surface)" : "var(--x)")"
+                              stroke="@(t.Negative ? "var(--neg)" : "none")" stroke-width="2" />
+                    }
+                    else if (t.Shape == Shape.Circle)
+                    {
+                        <circle cx="@F(t.X + t.W / 2)" cy="@F(t.Y + t.H / 2)" r="@F(t.W / 2 - (t.Negative ? 1 : 0))"
+                                fill="@(t.Negative ? "var(--surface)" : "var(--pos)")"
+                                stroke="@(t.Negative ? "var(--neg)" : "none")" stroke-width="2" />
+                        @if (t.Negative)
+                        {
+                            <line x1="@F(t.X + 3.5)" y1="@F(t.Y + t.H / 2)" x2="@F(t.X + t.W - 3.5)" y2="@F(t.Y + t.H / 2)"
+                                  stroke="var(--neg)" stroke-width="2" stroke-linecap="round" />
+                        }
+                    }
+                    else
+                    {
+                        <rect x="@F(t.X)" y="@F(t.Y)" width="@F(t.W)" height="@F(t.H)" rx="@F(t.H / 2)"
+                              fill="@(t.Negative ? "var(--surface)" : t.IsX ? "var(--x)" : "var(--pos)")"
+                              stroke="@(t.Negative ? "var(--neg)" : "none")" stroke-width="2" />
+                    }
+
+                    @if (t.Label != null)
+                    {
+                        <!text class="scale__label" x="@F(t.X + t.W / 2)" y="@F(t.Y + t.H / 2 + 4)" text-anchor="middle"
+                               fill="@(t.Negative ? "var(--neg)" : t.IsX ? "var(--x-ink)" : "#fff")">@t.Label</!text>
+                    }
+                }
+            }
+
+            <circle cx="180" cy="44" r="10" fill="var(--accent)" stroke="var(--surface)" stroke-width="3" />
+        </g>
+    </svg>
+</div>
+
+@code {
+    /// <summary>SVG vaatii pisteen desimaalierottimeksi suomenkielisessäkin puhelimessa.</summary>
+    private static string F(double value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    private const double PanTop = 157;
+    private const double PanWidth = 112;
+    private const double SquareSize = 24;
+    private const double CircleSize = 14;
+    private const double Gap = 3;
+    private const int MaxSquaresShown = 8;
+    private const int MaxCirclesShown = 12;
+
+    [Parameter, EditorRequired] public Equation Equation { get; set; } = default!;
+
+    /// <summary>Kasvaa jokaisella onnistuneella siirrolla: käynnistää heilahduksen.</summary>
+    [Parameter] public int MoveVersion { get; set; }
+
+    private enum Shape { Square, Circle, Pill }
+
+    private readonly record struct Token(Shape Shape, bool IsX, bool Negative, double X, double Y, double W, double H, string? Label);
+
+    private static string PanPath(int cx) =>
+        FormattableString.Invariant($"M{cx - 62} 160 H{cx + 62} Q{cx + 56} 176 {cx + 36} 176 H{cx - 36} Q{cx - 56} 176 {cx - 62} 160 Z");
+
+    private static List<Token> Layout(int centerX, LinearExpression expr)
+    {
+        var tokens = new List<Token>();
+        double left = centerX - PanWidth / 2;
+
+        double top = Stack(tokens, expr.X, isX: true, Shape.Square, SquareSize, MaxSquaresShown, left, PanTop);
+        Stack(tokens, expr.Constant, isX: false, Shape.Circle, CircleSize, MaxCirclesShown, left, top - (top < PanTop ? Gap : 0));
+
+        return tokens;
+    }
+
+    /// <summary>Pinoaa |count| palaa riveihin. Liian monesta piirretään yksi pilleri, jossa on luku.</summary>
+    private static double Stack(List<Token> tokens, int count, bool isX, Shape shape, double size, int maxShown,
+        double left, double bottom)
+    {
+        int n = Math.Abs(count);
+        if (n == 0)
+            return bottom;
+
+        bool negative = count < 0;
+        if (n > maxShown)
+        {
+            const double w = 70, h = 24;
+            tokens.Add(new Token(Shape.Pill, isX, negative, left + (PanWidth - w) / 2, bottom - h, w, h,
+                isX ? $"{count}x" : $"{count}"));
+            return bottom - h;
+        }
+
+        string? label = isX ? (negative ? "-x" : "x") : null;
+        int perRow = (int)((PanWidth + Gap) / (size + Gap));
+        int rows = (n + perRow - 1) / perRow;
+        for (int i = 0; i < n; i++)
+        {
+            int row = i / perRow;
+            int col = i % perRow;
+            int inRow = Math.Min(perRow, n - row * perRow);
+            double rowWidth = inRow * size + (inRow - 1) * Gap;
+            double x = left + (PanWidth - rowWidth) / 2 + col * (size + Gap);
+            double y = bottom - (row + 1) * size - row * Gap;
+            tokens.Add(new Token(shape, isX, negative, x, y, size, size, label));
+        }
+
+        return bottom - rows * size - (rows - 1) * Gap;
+    }
+}

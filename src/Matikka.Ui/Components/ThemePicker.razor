@@ -1,0 +1,30 @@
+@inject AppearanceService Appearance
+
+@* Jokainen värinäyte näyttää teeman omat värit, koska data-theme on asetettu napille itselleen. *@
+<div class="themes" role="radiogroup" aria-label="Värimaailma">
+    @foreach (var theme in AppearanceService.Themes)
+    {
+        bool selected = theme.Id == _current;
+        <button type="button" class="theme-swatch" role="radio" aria-checked="@(selected ? "true" : "false")"
+                @onclick="() => SelectAsync(theme.Id)">
+            <span class="theme-swatch__dots" data-theme="@theme.Id" aria-hidden="true">
+                <span style="background: var(--bg)"></span>
+                <span style="background: var(--accent)"></span>
+                <span style="background: var(--x)"></span>
+            </span>
+            @theme.Name
+        </button>
+    }
+</div>
+
+@code {
+    private string _current = AppearanceService.DefaultTheme;
+
+    protected override async Task OnInitializedAsync() => _current = await Appearance.GetThemeAsync();
+
+    private async Task SelectAsync(string id)
+    {
+        _current = id;
+        await Appearance.SetThemeAsync(id);
+    }
+}

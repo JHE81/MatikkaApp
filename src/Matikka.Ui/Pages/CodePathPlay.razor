@@ -1,0 +1,374 @@
+@page "/koodipolku/pelaa"
+@page "/koodipolku/pelaa/{Level:int}"
+@inject ProgressService Progress
+@inject CharacterService Characters
+@implements IDisposable
+
+@if (_session == null)
+{
+    return;
+}
+
+<div class="hud">
+    <span class="hud__level">Taso @_level.Number: @_level.Name</span>
+    <span class="hud__moves" title="Lohkoja käytössä">
+        @if (_session.Puzzle.BlockLimit is int limit)
+        {
+            @($"Lohkoja {_session.Program.Size} / {limit}")
+        }
+        else
+        {
+            @($"Lohkoja {_session.Program.Size}")
+        }
+    </span>
+</div>
+
+<CodeMap Map="_session.Puzzle.Map" CharacterId="@_characterId" Position="_position" Angle="_angle"
+         Collected="_collected" Visited="_visited" Bumped="_bumped" BumpVersion="_bumpVersion" HintRoute="_showHint ? _session.Puzzle.HintRoute : null" />
+
+<p class="feedback @(_feedbackIsError ? "feedback--error" : "")" role="status">@_feedback</p>
+
+@if (_session.IsSolved && !_running)
+{
+    <section class="card solved" aria-live="assertive">
+        <h2>Portaalissa!</h2>
+        <Stars Count="_session.Stars" Big="true" />
+        <p class="muted">@SolvedComment</p>
+        <button type="button" class="btn btn--primary btn--block btn--big" @onclick="NextPuzzle">Seuraava kenttä</button>
+        <a class="btn btn--ghost btn--block" href="koodipolku">Tasot</a>
+    </section>
+}
+else
+{
+    <section class="card program">
+        <div class="program__section">
+            <button type="button" class="program__title @(ReferenceEquals(_active, _session.Program.Main) ? "is-active" : "")"
+                    disabled="@_running" @onclick="() => Activate(_session.Program.Main)">Ohjelma</button>
+            <BlockList Blocks="_session.Program.Main" Active="_active" CurrentId="_currentBlock" FailedId="_failedBlock"
+                       Editable="!_running" EmptyText="Napauta alta lohkoja ohjelmaan"
+                       OnActivate="Activate" OnRemove="Remove" OnCycle="Cycle" />
+        </div>
+
+        @if (HasProcedure)
+        {
+            <div class="program__section">
+                <button type="button" class="program__title @(ReferenceEquals(_active, _session.Program.Procedure) ? "is-active" : "")"
+                        disabled="@_running" @onclick="() => Activate(_session.Program.Procedure)">Aliohjelma A</button>
+                <BlockList Blocks="_session.Program.Procedure" Active="_active" CurrentId="_currentBlock" FailedId="_failedBlock"
+                           Editable="!_running" EmptyText="Valitse tämä ja lisää lohkot, jotka A tekee"
+                           OnActivate="Activate" OnRemove="Remove" OnCycle="Cycle" />
+            </div>
+        }
+    </section>
+
+    <div class="palette" aria-label="Lohkot">
+        @foreach (var kind in _session.Puzzle.Palette)
+        {
+            var k = kind;
+            <button type="button" class="btn palette__btn" disabled="@(_running || !_session.CanAdd)" @onclick="() => Add(k)">
+                <CommandIcon Kind="k" />
+                <span>@CommandIcon.Name(k)</span>
+            </button>
+        }
+    </div>
+
+    <div class="tools">
+        @if (_running)
+        {
+            <button type="button" class="btn btn--primary" @onclick="Stop">Pysäytä</button>
+        }
+        else
+        {
+            <button type="button" class="btn btn--primary" disabled="@(_session.Program.Size == 0)" @onclick="RunAsync">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z" /></svg>
+                Suorita
+            </button>
+        }
+        <button type="button" class="btn" disabled="@(_running || _session.Program.Size == 0)" @onclick="Clear">Tyhjennä</button>
+        <button type="button" class="btn" disabled="@(_running || _showHint)" @onclick="Hint">Vihje</button>
+        <button type="button" class="btn btn--ghost" disabled="@_running" @onclick="Skip">Ohita</button>
+    </div>
+}
+
+@code {
+    private static readonly GameInfo Game = CodePathGame.Info;
+
+    private CodePathSession? _session;
+    private LevelInfo _level = Game.Levels[0];
+    private List<Block>? _active;
+    private string _characterId = CharacterService.DefaultCharacter;
+
+    // Näytettävä tila (animaation aikana eri kuin lähtötila).
+    private Cell _position;
+    private int _angle;
+    private HashSet<int> _collected = new();
+    private HashSet<Cell> _visited = new();
+    private bool _bumped;
+    private int _bumpVersion;
+    private int? _currentBlock;
+    private int? _failedBlock;
+
+    private bool _running;
+    private bool _showHint;
+    private string? _feedback;
+    private bool _feedbackIsError;
+    private CancellationTokenSource? _runCts;
+    private bool _recorded;
+    private int? _startedFor = -1;
+    private readonly Stopwatch _timer = new();
+    private readonly SeededRandom _random = new(Random.Shared.NextInt64());
+
+    /// <summary>Kiinteä taso tasolistasta. Null = valitaan adaptiivisesti.</summary>
+    [Parameter] public int? Level { get; set; }
+
+    private bool HasProcedure => _session!.Puzzle.Palette.Contains(CommandKind.Call);
+
+    private string SolvedComment => _session!.Stars switch
+    {
+        3 when _session.SolvedSize < _session.Puzzle.Par => $"Vain {_session.SolvedSize} lohkoa – lyhyempi kuin malliratkaisu!",
+        3 => "Yhtä lyhyt kuin malliratkaisu.",
+        2 when _session.HintsUsed > 0 => "Vihjeellä enintään kaksi tähteä.",
+        _ => $"Malliratkaisussa on {_session.Puzzle.Par} lohkoa. Keksitkö lyhyemmän ohjelman?",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _characterId = (await Characters.GetAsync()).Id;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_startedFor == Level && _session != null)
+            return;
+
+        _startedFor = Level;
+        await NextPuzzle();
+    }
+
+    private async Task NextPuzzle()
+    {
+        Stop();
+        ProgressModel model = await Progress.GetModelAsync();
+
+        int number = Level is { } fixedLevel && LevelSelector.IsUnlocked(Game, model, fixedLevel)
+            ? fixedLevel
+            : Level.HasValue
+                ? LevelSelector.HighestUnlocked(Game, model)
+                : LevelSelector.ChooseNext(Game, model, _random);
+
+        _level = Game.GetLevel(number);
+        _session = new CodePathSession(CodePathGenerator.Generate(number, _random.NextSeed()));
+        _active = _session.Program.Main;
+        _showHint = false;
+        _recorded = false;
+        _feedback = IntroText(number);
+        _feedbackIsError = false;
+        ResetHero();
+        _timer.Restart();
+    }
+
+    private static string IntroText(int level) => level switch
+    {
+        1 => "Vie hahmo portaaliin. Kokoa ohjelma ja paina Suorita.",
+        2 => "Kerää molemmat kristallit ennen portaalia.",
+        3 => "Lohkoja on rajattu. Toista n kertaa säästää lohkoja.",
+        4 => "Etsi reitistä toistuva kuvio ja laita se toiston sisään.",
+        5 => "Sama pätkä toistuu eri kohdissa. Kirjoita se aliohjelmaan A ja kutsu sitä.",
+        _ => "Yhdistä aliohjelma ja toisto.",
+    };
+
+    private void ResetHero()
+    {
+        var map = _session!.Puzzle.Map;
+        _position = map.Start;
+        _angle = 90 * (int)map.StartHeading;
+        _collected = new HashSet<int>();
+        _visited = new HashSet<Cell> { map.Start };
+        _bumped = false;
+        _currentBlock = null;
+        _failedBlock = null;
+    }
+
+    private void Add(CommandKind kind)
+    {
+        if (_session == null || !_session.CanAdd || _running)
+            return;
+
+        EnsureActiveExists();
+        Block block = _session.Program.NewBlock(kind, 3);
+        _active!.Add(block);
+        if (kind == CommandKind.Repeat)
+            _active = block.Body; // seuraavat lohkot menevät toiston sisään
+        Edited();
+    }
+
+    private void Remove(Block block)
+    {
+        if (_running)
+            return;
+        _session!.Program.Remove(block.Id);
+        EnsureActiveExists();
+        Edited();
+    }
+
+    private void Cycle(Block block)
+    {
+        if (_running)
+            return;
+        block.Count = block.Count >= Block.MaxRepeat ? Block.MinRepeat : block.Count + 1;
+        Edited();
+    }
+
+    private void Activate(List<Block> container)
+    {
+        if (!_running)
+            _active = container;
+    }
+
+    private void Clear()
+    {
+        _session!.Program.Clear();
+        _active = _session.Program.Main;
+        Edited();
+    }
+
+    /// <summary>Jos aktiivinen säiliö poistettiin (toisto poistettu), palataan pääohjelmaan.</summary>
+    private void EnsureActiveExists()
+    {
+        var program = _session!.Program;
+        if (_active == null || !(ReferenceEquals(_active, program.Main) || ReferenceEquals(_active, program.Procedure) || ContainsBody(program.Main) || ContainsBody(program.Procedure)))
+            _active = program.Main;
+
+        bool ContainsBody(List<Block> blocks) =>
+            blocks.Any(b => b.Kind == CommandKind.Repeat && (ReferenceEquals(b.Body, _active) || ContainsBody(b.Body)));
+    }
+
+    /// <summary>Muokkaus palauttaa hahmon lähtöön ja tyhjentää edellisen ajon korostukset.</summary>
+    private void Edited()
+    {
+        ResetHero();
+        if (_feedbackIsError)
+        {
+            _feedback = null;
+            _feedbackIsError = false;
+        }
+    }
+
+    private void Hint()
+    {
+        _session!.TakeHint();
+        _showHint = true;
+        _feedbackIsError = false;
+        _feedback = "Vihje: jäljet näyttävät malliratkaisun reitin.";
+    }
+
+    private async Task RunAsync()
+    {
+        if (_session == null || _running)
+            return;
+
+        ResetHero();
+        RunResult result = _session.Run();
+        _runCts = new CancellationTokenSource();
+        CancellationToken ct = _runCts.Token;
+        _running = true;
+        _feedback = null;
+        _feedbackIsError = false;
+        StateHasChanged();
+
+        try
+        {
+            // Pitkät ajot nopeammin; loputon ohjelma näytetään vain alusta.
+            IEnumerable<RunStep> steps = result.Outcome == RunOutcome.TooManySteps ? result.Steps.Take(24) : result.Steps;
+            int delay = result.Steps.Count > 40 ? 150 : 320;
+
+            await Task.Delay(250, ct);
+            foreach (RunStep step in steps)
+            {
+                _currentBlock = step.BlockId;
+                switch (step.Action)
+                {
+                    case StepAction.TurnLeft:
+                        _angle -= 90;
+                        break;
+                    case StepAction.TurnRight:
+                        _angle += 90;
+                        break;
+                    case StepAction.Bump:
+                        _bumped = true;
+                        _bumpVersion++;
+                        break;
+                    default:
+                        _position = step.Position;
+                        _visited.Add(step.Position);
+                        if (step.CollectedBerry is int berry)
+                            _collected.Add(berry);
+                        break;
+                }
+
+                StateHasChanged();
+                await Task.Delay(step.Action == StepAction.Bump ? 450 : delay, ct);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            ResetHero();
+            _running = false;
+            _feedback = "Pysäytetty. Muokkaa ohjelmaa ja kokeile uudelleen.";
+            return;
+        }
+
+        _running = false;
+        _currentBlock = null;
+        _failedBlock = result.FailedBlockId;
+        ShowOutcome(result);
+
+        if (_session.IsSolved)
+            await RecordAsync(GameOutcome.Solved);
+    }
+
+    private void ShowOutcome(RunResult result)
+    {
+        var map = _session!.Puzzle.Map;
+        _feedbackIsError = result.Outcome != RunOutcome.Success;
+        _feedback = result.Outcome switch
+        {
+            RunOutcome.Success => null,
+            RunOutcome.Bump when !map.IsInside(_position.Step(HeadingOf(_angle))) =>
+                "Pam! Hahmo yritti kävellä labyrintin reunan yli. Punainen lohko teki virheen.",
+            RunOutcome.Bump => "Pam! Hahmo törmäsi seinään. Punainen lohko teki virheen.",
+            RunOutcome.EndedBeforeGoal => "Ohjelma loppui ennen portaalia. Lisää lohkoja tai tarkista käännökset.",
+            RunOutcome.MissingBerries =>
+                $"Portaalissa ollaan, mutta kristalleja jäi keräämättä ({result.BerriesCollected} / {map.Berries.Count}).",
+            RunOutcome.TooManySteps => "Askelia tuli liikaa. Kutsuuko aliohjelma itseään loputtomasti?",
+            _ => "Ohjelmassa ei ole vielä liikkeitä. Lisää lohkoja alta.",
+        };
+    }
+
+    private static Heading HeadingOf(int angle) => (Heading)(((angle / 90) % 4 + 4) % 4);
+
+    private void Stop()
+    {
+        _runCts?.Cancel();
+        _runCts = null;
+    }
+
+    private async Task Skip()
+    {
+        await RecordAsync(GameOutcome.Skipped);
+        await NextPuzzle();
+    }
+
+    private async Task RecordAsync(GameOutcome outcome)
+    {
+        if (_recorded)
+            return;
+        _recorded = true;
+        _timer.Stop();
+
+        GameEvent e = _session!.ToEvent(outcome, Guid.NewGuid(), _timer.ElapsedMilliseconds, Progress.Clock.GetLocalNow());
+        await Progress.RecordAsync(e);
+    }
+
+    public void Dispose() => Stop();
+}

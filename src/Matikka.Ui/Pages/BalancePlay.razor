@@ -1,0 +1,162 @@
+@page "/yhtalovaaka/pelaa"
+@page "/yhtalovaaka/pelaa/{Level:int}"
+@inject ProgressService Progress
+
+@if (_session == null)
+{
+    return;
+}
+
+<div class="hud">
+    <span class="hud__level">Taso @_level.Number: @_level.Name</span>
+    <span class="hud__moves" title="Siirrot / kolmen tähden raja">@_session.MoveCount / @_session.Puzzle.Par</span>
+</div>
+
+<div class="card equation" aria-live="polite">
+    @_session.Current.Left<span class="equation__eq">=</span>@_session.Current.Right
+</div>
+
+@if (ThermoMode)
+{
+    <ThermoBalance Equation="_session.Current" Range="_thermoRange" />
+    <p class="small muted thermo-caption">Lämpömittari näyttää vakion: plus on lämpöä, miinus pakkasta.</p>
+}
+else
+{
+    <BalanceScale Equation="_session.Current" MoveVersion="_moveVersion" />
+}
+
+@if (_session.IsSolved)
+{
+    <section class="card solved" aria-live="assertive">
+        <h2>Ratkaistu!</h2>
+        <div class="solved__value">x = @_session.Puzzle.Solution</div>
+        <Stars Count="_session.Stars" Big="true" />
+        <p class="muted">@SolvedComment</p>
+        <button type="button" class="btn btn--primary btn--block btn--big" @onclick="NextPuzzle">Seuraava tehtävä</button>
+        <a class="btn btn--ghost btn--block" href="yhtalovaaka">Tasot</a>
+    </section>
+}
+else
+{
+    <div class="tools">
+        <button type="button" class="btn" disabled="@(!_session.CanUndo)" @onclick="Undo">Kumoa</button>
+        <button type="button" class="btn" @onclick="Hint">Vihje</button>
+        <button type="button" class="btn btn--ghost" @onclick="Skip">Ohita</button>
+    </div>
+
+    <MovePad @ref="_pad" OnMove="ApplyMove" />
+}
+
+@code {
+    private static readonly GameInfo Game = EquationBalanceGame.Info;
+
+    private BalanceSession? _session;
+    private LevelInfo _level = Game.Levels[0];
+    private MovePad? _pad;
+    private int _moveVersion;
+    private int _thermoRange = 10;
+
+    /// <summary>
+    /// Negatiivisia lukuja sisältävillä tasoilla vaaka vaihtuu lämpömittareiksi: negatiivinen
+    /// paino ei ole havainnollinen, pakkasasteet ovat.
+    /// </summary>
+    private bool ThermoMode => _session!.Puzzle.Level is not (1 or 6);
+    private bool _recorded;
+    private readonly Stopwatch _timer = new();
+    private readonly SeededRandom _random = new(Random.Shared.NextInt64());
+
+    /// <summary>Kiinteä taso tasolistasta. Null = valitaan adaptiivisesti.</summary>
+    [Parameter] public int? Level { get; set; }
+
+    private string SolvedComment => _session!.Stars switch
+    {
+        3 when _session.MoveCount < _session.Puzzle.Par => "Lyhyempi kuin malliratkaisu!",
+        3 => "Suorin reitti.",
+        2 when _session.HintsUsed > 0 => "Vihjeellä enintään kaksi tähteä.",
+        _ => $"Malliratkaisussa {_session.Puzzle.Par} siirtoa. Löydätkö lyhyemmän reitin?",
+    };
+
+    private int? _startedFor = -1;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Uusi tehtävä vain, kun reitti oikeasti vaihtui (ei jokaisella uudelleenpiirrolla).
+        if (_startedFor == Level && _session != null)
+            return;
+
+        _startedFor = Level;
+        await NextPuzzle();
+    }
+
+    private async Task NextPuzzle()
+    {
+        ProgressModel model = await Progress.GetModelAsync();
+
+        int number = Level is { } fixedLevel && LevelSelector.IsUnlocked(Game, model, fixedLevel)
+            ? fixedLevel
+            : Level.HasValue
+                ? LevelSelector.HighestUnlocked(Game, model)
+                : LevelSelector.ChooseNext(Game, model, _random);
+
+        _level = Game.GetLevel(number);
+        _session = new BalanceSession(BalancePuzzleGenerator.Generate(number, _random.NextSeed()));
+        _moveVersion = 0;
+        _thermoRange = 10;
+        UpdateThermoRange(_session.Puzzle.Start);
+        _recorded = false;
+        _timer.Restart();
+    }
+
+    private string? ApplyMove(BalanceMove move)
+    {
+        MoveResult result = _session!.TryApply(move);
+        if (!result.Succeeded)
+            return MoveErrorTexts.For(result.Error);
+
+        _moveVersion++;
+        UpdateThermoRange(_session.Current);
+        if (_session.IsSolved)
+            _ = RecordAsync(GameOutcome.Solved);
+
+        StateHasChanged();
+        return null;
+    }
+
+    /// <summary>Asteikko kasvaa tarvittaessa 10:n askelin, mutta ei pienene kesken tehtävän.</summary>
+    private void UpdateThermoRange(Equation equation)
+    {
+        int max = Math.Max(Math.Abs(equation.Left.Constant), Math.Abs(equation.Right.Constant));
+        _thermoRange = Math.Max(_thermoRange, Math.Max(10, (max + 9) / 10 * 10));
+    }
+
+    private void Undo()
+    {
+        if (_session!.Undo())
+            _moveVersion++;
+    }
+
+    private void Hint()
+    {
+        BalanceMove? hint = _session!.TakeHint();
+        if (hint != null)
+            _pad?.Prefill(hint);
+    }
+
+    private async Task Skip()
+    {
+        await RecordAsync(GameOutcome.Skipped);
+        await NextPuzzle();
+    }
+
+    private async Task RecordAsync(GameOutcome outcome)
+    {
+        if (_recorded)
+            return;
+        _recorded = true;
+        _timer.Stop();
+
+        GameEvent e = _session!.ToEvent(outcome, Guid.NewGuid(), _timer.ElapsedMilliseconds, Progress.Clock.GetLocalNow());
+        await Progress.RecordAsync(e);
+    }
+}

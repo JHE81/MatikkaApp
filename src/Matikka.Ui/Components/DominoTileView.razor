@@ -1,0 +1,50 @@
+@*
+    Dominolaatta: tumma, hieman kohokuvioitu laatta, jonka puolikkaita erottaa viiva ja
+    messinkinasta. Kädessä pystyssä ja raahattava, ketjussa vaakatasossa.
+*@
+@if (Draggable)
+{
+    <button type="button" class="domino domino--v @(Wrong ? WrongCss : "") @(Hint ? "is-hint" : "")"
+            data-drag-id="@Tile.Id" aria-label="@Label">
+        @Halves
+    </button>
+}
+else
+{
+    <div class="domino @(Horizontal ? "domino--h" : "domino--v") @(Open ? "domino--open" : "")" role="img" aria-label="@Label">
+        @Halves
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DominoTile Tile { get; set; } = default!;
+
+    [Parameter] public bool Horizontal { get; set; }
+
+    /// <summary>Kädessä oleva laatta: raahattava (ja napautettava).</summary>
+    [Parameter] public bool Draggable { get; set; }
+
+    /// <summary>Ketjun viimeinen laatta: sen yhtälö on ratkaistavana.</summary>
+    [Parameter] public bool Open { get; set; }
+
+    /// <summary>Väärä laatta: tärähtää. Versio vaihtaa animaation, jotta sama laatta voi tärähtää uudelleen.</summary>
+    [Parameter] public bool Wrong { get; set; }
+
+    [Parameter] public int WrongVersion { get; set; }
+
+    [Parameter] public bool Hint { get; set; }
+
+    private string WrongCss => WrongVersion % 2 == 0 ? "domino--wrong-a" : "domino--wrong-b";
+
+    private string AnswerText => Tile.IsStart ? "Alku" : $"x = {Tile.Answer}";
+
+    private string EquationText => Tile.IsFinish ? "Maali" : Tile.Equation!.Display;
+
+    private string Label => $"Laatta: {AnswerText}, sitten {EquationText}" + (Draggable ? ". Raahaa ketjun perään tai napauta." : "");
+
+    private RenderFragment Halves => @<text>
+        <span class="domino__half domino__answer @(Tile.IsStart ? "domino__half--end" : "")">@AnswerText</span>
+        <span class="domino__pin" aria-hidden="true"></span>
+        <span class="domino__half domino__equation @(Tile.IsFinish ? "domino__half--end" : "")">@EquationText</span>
+    </text>;
+}

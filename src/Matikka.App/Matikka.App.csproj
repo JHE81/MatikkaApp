@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!--
+    MAUI Blazor Hybrid -isäntä Androidille ja iOS:lle. Tässä projektissa on vain
+    alustakohtainen kytkentä: palveluiden rekisteröinti, tiedostopolut ja suojattu tallennus.
+    Kaikki näkymät ovat Matikka.Ui:ssa ja kaikki logiikka Matikka.Core:ssa.
+
+    Vaatii MAUI-työkuorman:  dotnet workload install maui
+    iOS-käännös vaatii Macin (Xcode).
+  -->
+	<PropertyGroup>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Authors>Matikka</Authors>
+		<!-- Yhteinen .NET-versio sovellukselle, API:lle ja testeille. Core on erikseen netstandard2.1. -->
+		<MatikkaTargetFramework>net10.0</MatikkaTargetFramework>
+		<!-- MAUI-pakettien versio. Tarkista uusin versio NuGetistä (Microsoft.Maui.Controls). -->
+		<MauiVersion>10.0.0</MauiVersion>
+	</PropertyGroup>
+  <PropertyGroup>
+	<TargetFrameworks>$(MatikkaTargetFramework)-android36.0;$(MatikkaTargetFramework)-ios26.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Matikka.App</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <EnableDefaultCssItems>false</EnableDefaultCssItems>
+
+    <!-- Sovelluksen tiedot: vaihda omiksi ennen kauppajulkaisua. -->
+    <ApplicationTitle>Matikkapeli</ApplicationTitle>
+    <ApplicationId>fi.matikkapeli.app</ApplicationId>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
+    <SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">24.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#E6F4EE" />
+    <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#E6F4EE" BaseSize="128,128" />
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+    <BundleResource Include="Platforms\iOS\PrivacyInfo.xcprivacy" LogicalName="PrivacyInfo.xcprivacy" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Matikka.Ui\Matikka.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

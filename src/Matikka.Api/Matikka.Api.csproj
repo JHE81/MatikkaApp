@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Kevyt synkronointipalvelin: nimettömät tilit + pelitapahtumat. Ei henkilötietoja.
+    Ilman yhteysmerkkijonoa käyttää muistivarastoa (nopea paikallinen kehitys),
+    ConnectionStrings:Matikka asetettuna PostgreSQL:ää.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(MatikkaTargetFramework)</TargetFramework>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Matikka.Core\Matikka.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Matikka.Api.Tests" />
+  </ItemGroup>
+
+</Project>

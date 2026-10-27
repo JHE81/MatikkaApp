@@ -1,0 +1,141 @@
+@page "/edistyminen"
+@inject ProgressService Progress
+@implements IDisposable
+
+<h1>Edistyminen</h1>
+
+@if (_model == null)
+{
+    return;
+}
+
+@if (_model.EventCount == 0)
+{
+    <div class="card">
+        <p>Täällä näkyy, mitä olet oppinut. Pelaa ensimmäinen tehtävä, niin tilastot alkavat kertyä.</p>
+        <a class="btn btn--primary btn--block" href="yhtalovaaka/pelaa">Pelaa</a>
+    </div>
+    return;
+}
+
+@foreach (var skill in _skills)
+{
+    <section class="card">
+        <h2>@skill.Title</h2>
+        @if (skill.ConfidentLevel is { } level)
+        {
+            <p>Hallitset jo: @level.Description.</p>
+        }
+        else
+        {
+            <p>Taitotaso hakee vielä paikkaansa. Muutama tehtävä lisää, niin peli osaa tarjota sopivan haastavia.</p>
+        }
+        <div class="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="@skill.Percent" aria-label="@skill.Title">
+            <div class="meter__fill" style="width: @(skill.Percent)%"></div>
+        </div>
+        <p class="small muted">Kasvaa peleissä: @skill.Games</p>
+    </section>
+}
+
+<section class="card">
+    <h2>Viimeiset 14 päivää</h2>
+    <div class="bars" role="img" aria-label="@($"Ratkaistuja tehtäviä päivittäin, yhteensä {_days.Sum(d => d.Count)}")">
+        @foreach (var day in _days)
+        {
+            string css = day.Count == 0 ? "bars__bar bars__bar--empty" : day.IsToday ? "bars__bar bars__bar--today" : "bars__bar";
+            <div class="@css" style="height: @(day.Count == 0 ? 6 : Math.Max(8, 96 * day.Count / _maxPerDay))px"
+                 title="@($"{day.Date:d.M.}: {day.Count}")"></div>
+        }
+    </div>
+    <div class="bars-axis" aria-hidden="true">
+        <span>@_days[0].Date.ToString("d.M.")</span>
+        <span>Tänään</span>
+    </div>
+    <p class="small muted">Yhteensä @_model.TotalSolved ratkaistua tehtävää ja @_model.TotalStars tähteä.</p>
+</section>
+
+@foreach (var game in GameCatalog.All)
+{
+    var played = game.Levels.Where(l => _model.GetLevel(game.GameId, l.Number).Attempts > 0).ToList();
+    if (played.Count == 0)
+        continue;
+
+    <section class="card">
+        <h2>@game.Title</h2>
+        <table class="progress-table">
+            <thead>
+                <tr><th>Taso</th><th>Ratkaistu</th><th>Paras</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var level in played)
+                {
+                    var stats = _model.GetLevel(game.GameId, level.Number);
+                    <tr>
+                        <td>@level.Number. @level.Name</td>
+                        <td>@stats.Solved</td>
+                        <td><Stars Count="stats.BestStars" /></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </section>
+}
+
+@code {
+    private sealed record SkillView(string Title, LevelInfo? ConfidentLevel, int Percent, string Games);
+
+    private ProgressModel? _model;
+    private List<SkillView> _skills = new();
+    private List<(DateTime Date, int Count, bool IsToday)> _days = new();
+    private int _maxPerDay = 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Progress.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _model = await Progress.GetModelAsync();
+
+        // Yksi kortti taitoaluetta kohden. Tasokuvaukset ja asteikko otetaan alueen ensimmäisestä pelistä.
+        _skills = GameCatalog.All
+            .GroupBy(g => g.SkillId)
+            .Where(group => group.Any(g => g.Levels.Any(l => _model.GetLevel(g.GameId, l.Number).Attempts > 0)))
+            .Select(group => BuildSkill(group.ToList()))
+            .ToList();
+
+        DateTime today = Progress.Clock.GetLocalNow().Date;
+        _days = Enumerable.Range(0, 14)
+            .Select(i => today.AddDays(i - 13))
+            .Select(d => (d, _model.SolvedPerDay.TryGetValue(d, out int c) ? c : 0, d == today))
+            .ToList();
+        _maxPerDay = Math.Max(1, _days.Max(d => d.Count));
+    }
+
+    private SkillView BuildSkill(List<GameInfo> games)
+    {
+        GameInfo primary = games[0];
+        double rating = _model!.GetSkill(primary).Rating;
+
+        // Korkein taso, jolla odotettu onnistuminen on vähintään tavoitteen verran.
+        LevelInfo? confident = primary.Levels
+            .Where(l => EloRating.Expected(rating, l.Difficulty) >= EloRating.TargetSuccess)
+            .LastOrDefault();
+
+        double min = primary.InitialRating;
+        double max = primary.Levels[^1].Difficulty + EloRating.TargetLogit;
+        int percent = (int)Math.Clamp(Math.Round(100 * (rating - min) / (max - min)), 2, 100);
+
+        string names = games.Count == 1
+            ? games[0].Title
+            : string.Join(", ", games.Take(games.Count - 1).Select(g => g.Title)) + " ja " + games[^1].Title;
+
+        return new SkillView(SkillTexts.Title(primary.SkillId), confident, percent, names);
+    }
+
+    private void OnChanged() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+
+    public void Dispose() => Progress.Changed -= OnChanged;
+}

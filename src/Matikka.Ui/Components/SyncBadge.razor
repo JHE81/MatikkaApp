@@ -1,0 +1,36 @@
+@inject SyncService Sync
+@implements IDisposable
+
+@if (Sync.State != SyncState.Disabled)
+{
+    <span class="sync @CssClass" role="status">
+        <span class="sync__dot" aria-hidden="true"></span>
+        @Text
+    </span>
+}
+
+@code {
+    private string CssClass => Sync.State switch
+    {
+        SyncState.Synced => "sync--synced",
+        SyncState.Syncing => "sync--syncing",
+        SyncState.Offline => "sync--offline",
+        SyncState.Error => "sync--error",
+        _ => "",
+    };
+
+    private string Text => Sync.State switch
+    {
+        SyncState.Synced => "Tallessa",
+        SyncState.Syncing => "Tallennetaan",
+        SyncState.Offline => "Ei verkkoa, tallessa laitteella",
+        SyncState.Error => "Pilvitallennus ei onnistunut",
+        _ => "Tallessa laitteella",
+    };
+
+    protected override void OnInitialized() => Sync.StateChanged += OnChanged;
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Sync.StateChanged -= OnChanged;
+}

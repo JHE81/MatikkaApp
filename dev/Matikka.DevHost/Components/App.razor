@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#e6f4ee" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["_content/Matikka.Ui/app.css"]" />
+    <title>Matikkapeli (kehitys)</title>
+    <HeadOutlet @rendermode="RenderMode" />
+</head>
+<body>
+    <Matikka.Ui.Routes @rendermode="RenderMode" />
+    <div id="blazor-error-ui">Jokin meni vikaan. <a href="" class="reload">Lataa uudelleen</a></div>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>
+
+@code {
+    // Ei esirenderöintiä: käyttäytyy kuten MAUI-sovellus, jossa kaikki on heti interaktiivista.
+    private static readonly IComponentRenderMode RenderMode = new InteractiveServerRenderMode(prerender: false);
+}

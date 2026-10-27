@@ -1,0 +1,224 @@
+@page "/yhtalodomino/pelaa"
+@page "/yhtalodomino/pelaa/{Level:int}"
+@inject ProgressService Progress
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (_session == null)
+{
+    return;
+}
+
+<div class="hud">
+    <span class="hud__level">Taso @_level.Number: @_level.Name</span>
+    <span class="hud__moves" title="Laattoja ketjussa">@_session.Placed / @_session.TileCount</span>
+</div>
+
+<div class="domino-table" @ref="_table">
+    <div class="chain" @ref="_chain" aria-label="Ketju">
+        @foreach (var tile in _session.Chain)
+        {
+            <DominoTileView Tile="tile" Horizontal="true" Open="@(!_session.IsSolved && tile == _session.Chain[^1])" />
+        }
+        @if (!_session.IsSolved)
+        {
+            <div class="chain__drop" data-drop-zone="end" aria-hidden="true">
+                <span>?</span>
+            </div>
+        }
+    </div>
+
+    @if (_session.IsSolved)
+    {
+        <section class="card solved" aria-live="assertive">
+            <h2>Ketju valmis!</h2>
+            <Stars Count="_session.Stars" Big="true" />
+            <p class="muted">@SolvedComment</p>
+            <button type="button" class="btn btn--primary btn--block btn--big" @onclick="NextPuzzle">Seuraava ketju</button>
+            <a class="btn btn--ghost btn--block" href="yhtalodomino">Tasot</a>
+        </section>
+    }
+    else
+    {
+        <p class="domino-prompt">
+            Ratkaise <strong>@_session.OpenEquation!.Display</strong> ja raahaa ketjun perään laatta, jolla on sama vastaus.
+        </p>
+
+        <p class="feedback @(_feedbackIsError ? "feedback--error" : "")" role="status">@_feedback</p>
+
+        <div class="hand" aria-label="Laattasi">
+            @foreach (var tile in _session.Hand)
+            {
+                var t = tile;
+                <DominoTileView @key="t.Id" Tile="t" Draggable="true" Wrong="@(t.Id == _wrongTileId)" WrongVersion="_wrongVersion" Hint="@(t.Id == _hintTileId)" />
+            }
+        </div>
+
+        <div class="tools">
+            <button type="button" class="btn" @onclick="Hint">Vihje</button>
+            <button type="button" class="btn btn--ghost" @onclick="Skip">Ohita</button>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly GameInfo Game = EquationDominoGame.Info;
+
+    private DominoSession? _session;
+    private LevelInfo _level = Game.Levels[0];
+    private string? _feedback;
+    private bool _feedbackIsError;
+    private int? _wrongTileId;
+    private int _wrongVersion;
+    private int? _hintTileId;
+    private bool _recorded;
+    private int? _startedFor = -1;
+    private int _scrolledFor = -1;
+    private readonly Stopwatch _timer = new();
+    private readonly SeededRandom _random = new(Random.Shared.NextInt64());
+
+    private ElementReference _table;
+    private ElementReference _chain;
+    private IJSObjectReference? _module;
+    private IJSObjectReference? _drag;
+    private DotNetObjectReference<DominoPlay>? _self;
+
+    /// <summary>Kiinteä taso tasolistasta. Null = valitaan adaptiivisesti.</summary>
+    [Parameter] public int? Level { get; set; }
+
+    private string SolvedComment => _session!.Mistakes switch
+    {
+        0 when _session.HintsUsed > 0 => "Ei yhtään väärää laattaa. Vihjeellä enintään kaksi tähteä.",
+        0 => "Ei yhtään väärää laattaa.",
+        1 => "Yksi väärä laatta matkalla.",
+        int n => $"{n} väärää laattaa matkalla. Ratkaise yhtälö ennen kuin raahaat, niin tähtiä tulee enemmän.",
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_startedFor == Level && _session != null)
+            return;
+
+        _startedFor = Level;
+        await NextPuzzle();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_module == null)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./_content/Matikka.Ui/drag.js");
+            _self = DotNetObjectReference.Create(this);
+            _drag = await _module.InvokeAsync<IJSObjectReference>("init", _table, _self);
+        }
+
+        // Uuden laatan jälkeen ketju vieritetään loppuun, jotta avoin yhtälö näkyy.
+        if (_session != null && _scrolledFor != _session.Placed)
+        {
+            _scrolledFor = _session.Placed;
+            await _module.InvokeVoidAsync("scrollToEnd", _chain);
+        }
+    }
+
+    /// <summary>JS kutsuu: laatta pudotettiin ketjun perään tai sitä napautettiin.</summary>
+    [JSInvokable]
+    public Task OnDragDropped(int tileId, bool tapped) => InvokeAsync(async () =>
+    {
+        if (_session == null || _session.IsSolved || _session.Hand.All(t => t.Id != tileId))
+            return;
+
+        await Place(tileId);
+        StateHasChanged();
+    });
+
+    private async Task NextPuzzle()
+    {
+        ProgressModel model = await Progress.GetModelAsync();
+
+        int number = Level is { } fixedLevel && LevelSelector.IsUnlocked(Game, model, fixedLevel)
+            ? fixedLevel
+            : Level.HasValue
+                ? LevelSelector.HighestUnlocked(Game, model)
+                : LevelSelector.ChooseNext(Game, model, _random);
+
+        _level = Game.GetLevel(number);
+        _session = new DominoSession(DominoGenerator.Generate(number, _random.NextSeed()));
+        _feedback = null;
+        _feedbackIsError = false;
+        _wrongTileId = null;
+        _hintTileId = null;
+        _recorded = false;
+        _scrolledFor = -1;
+        _timer.Restart();
+    }
+
+    private async Task Place(int tileId)
+    {
+        PlaceResult result = _session!.TryPlace(tileId);
+        _hintTileId = null;
+        if (result.Correct)
+        {
+            _wrongTileId = null;
+            _feedbackIsError = false;
+            _feedback = _session.IsSolved ? null : $"Oikein! x = {result.TriedAnswer} sopii.";
+            if (_session.IsSolved)
+                await RecordAsync(GameOutcome.Solved);
+            return;
+        }
+
+        // Selitetään sijoittamalla: mitä puolille tulee, kun x on valittu luku.
+        _wrongTileId = tileId;
+        _wrongVersion++;
+        _feedbackIsError = true;
+        _feedback = $"x = {result.TriedAnswer} ei sovi: vasemmalle tulee {result.LeftValue}, oikealle {result.RightValue}.";
+    }
+
+    private void Hint()
+    {
+        BalanceMove? step = _session!.TakeHint();
+        if (step == null)
+            return;
+
+        _wrongTileId = null;
+        _feedbackIsError = false;
+        _feedback = $"Vihje: {MoveTexts.Describe(step)}.";
+    }
+
+    private async Task Skip()
+    {
+        await RecordAsync(GameOutcome.Skipped);
+        await NextPuzzle();
+    }
+
+    private async Task RecordAsync(GameOutcome outcome)
+    {
+        if (_recorded)
+            return;
+        _recorded = true;
+        _timer.Stop();
+
+        GameEvent e = _session!.ToEvent(outcome, Guid.NewGuid(), _timer.ElapsedMilliseconds, Progress.Clock.GetLocalNow());
+        await Progress.RecordAsync(e);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_drag != null)
+            {
+                await _drag.InvokeVoidAsync("dispose");
+                await _drag.DisposeAsync();
+            }
+
+            if (_module != null)
+                await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+            // Sivu suljettiin: JS-puolta ei enää ole.
+        }
+
+        _self?.Dispose();
+    }
+}

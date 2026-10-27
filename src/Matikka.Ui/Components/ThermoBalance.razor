@@ -1,0 +1,100 @@
+@*
+    Yhtälö kahtena lämpömittarina. Kummallakin puolella x-termit ylhäällä ja vakio lämpömittarina:
+    plus on lämpöä, miinus pakkasta. Molemmilla puolilla on sama asteikko, joten kun samasta
+    siirrosta molemmat mittarit nousevat tai laskevat yhtä paljon, tasapaino näkyy suoraan.
+*@
+<div class="thermo">
+    <svg viewBox="0 0 360 236" role="img" aria-label="@Label">
+        @foreach (var side in new[] { (Cx: 92, Expr: Equation.Left), (Cx: 268, Expr: Equation.Right) })
+        {
+            @XTerms(side.Cx, side.Expr.X)
+
+            @* Asteikko: nolla ja ääripäät. *@
+            @foreach (int tick in Ticks)
+            {
+                double ty = Y(tick);
+                <line x1="@F(side.Cx - 22)" y1="@F(ty)" x2="@F(side.Cx - (tick == 0 ? 10 : 14))" y2="@F(ty)"
+                      stroke="var(--ink)" stroke-width="@(tick == 0 ? 2.5 : 1.2)" opacity="@(tick == 0 ? 0.9 : 0.45)" />
+                <!text x="@F(side.Cx - 27)" y="@F(ty + 4)" text-anchor="end" class="thermo__tick @(tick == 0 ? "is-zero" : "")">@NumberCard.Num(tick)</!text>
+            }
+
+            @* Putki ja säiliö. *@
+            <rect x="@F(side.Cx - 9)" y="@F(TubeTop - 6)" width="18" height="@F(TubeBottom - TubeTop + 12)" rx="9"
+                  fill="var(--surface-2)" stroke="var(--line)" stroke-width="2" />
+            <circle cx="@side.Cx" cy="@F(BulbY)" r="15" fill="@MercuryColor(side.Expr.Constant)" stroke="var(--line)" stroke-width="2" />
+            <rect class="thermo__mercury" x="@F(side.Cx - 5)" y="@F(TubeTop)" width="10" height="@F(BulbY - TubeTop)" rx="5"
+                  fill="@MercuryColor(side.Expr.Constant)" style="transform: scaleY(@F(Fill(side.Expr.Constant)))" />
+            <circle cx="@F(side.Cx - 4)" cy="@F(BulbY - 5)" r="3.5" fill="#fff" opacity="0.45" />
+
+            @* Lukema. *@
+            <g class="thermo__reading" style="transform: translateY(@F(Y(Clamp(side.Expr.Constant)) - TubeTop)px)">
+                <rect x="@F(side.Cx + 14)" y="@F(TubeTop - 13)" width="52" height="26" rx="13"
+                      fill="@MercuryColor(side.Expr.Constant)" />
+                <!text x="@F(side.Cx + 40)" y="@F(TubeTop + 5)" text-anchor="middle" class="thermo__value">@Signed(side.Expr.Constant)</!text>
+            </g>
+        }
+
+        <!text x="180" y="146" text-anchor="middle" class="thermo__eq">=</!text>
+    </svg>
+</div>
+
+@code {
+    private const double TubeTop = 78;
+    private const double TubeBottom = 196;
+    private const double BulbY = 212;
+
+    [Parameter, EditorRequired] public Equation Equation { get; set; } = default!;
+
+    /// <summary>Asteikon ääripää (±). Pidetään samana koko tehtävän ajan, jotta muutokset näkyvät.</summary>
+    [Parameter] public int Range { get; set; } = 10;
+
+    private IEnumerable<int> Ticks => new[] { -Range, -Range / 2, 0, Range / 2, Range };
+
+    private double Y(int value) => TubeBottom - (value + Range) * (TubeBottom - TubeTop) / (2.0 * Range);
+
+    private int Clamp(int v) => Math.Max(-Range, Math.Min(Range, v));
+
+    /// <summary>Elohopean pituus säiliöstä ylöspäin (0–1 koko putkesta).</summary>
+    private double Fill(int value) => Math.Max(0.04, (BulbY - Y(Clamp(value))) / (BulbY - TubeTop));
+
+    private static string MercuryColor(int value) => value < 0 ? "var(--pos)" : value > 0 ? "var(--neg)" : "var(--muted)";
+
+    private static string Signed(int v) => v > 0 ? "+" + v : NumberCard.Num(v);
+
+    private string Label => $"Yhtälö {Equation}. Vasemman puolen vakio {Signed(Equation.Left.Constant)}, oikean {Signed(Equation.Right.Constant)}.";
+
+    private static string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>x-termit: enintään kuusi laattaa, muuten yksi pilleri luvulla.</summary>
+    private RenderFragment XTerms(int cx, int count) => __builder =>
+    {
+        int n = Math.Abs(count);
+        bool negative = count < 0;
+        if (n == 0)
+        {
+            <!text x="@cx" y="38" text-anchor="middle" class="thermo__none">ei x:ää</!text>
+            return;
+        }
+
+        if (n > 6)
+        {
+            <rect x="@F(cx - 34)" y="20" width="68" height="28" rx="14" fill="@(negative ? "var(--surface)" : "var(--x)")"
+                  stroke="@(negative ? "var(--neg)" : "none")" stroke-width="2.5" />
+            <!text x="@cx" y="39" text-anchor="middle" class="thermo__x @(negative ? "is-neg" : "")">@($"{NumberCard.Num(count)}x")</!text>
+            return;
+        }
+
+        int perRow = Math.Min(n, 3);
+        int rows = (n + 2) / 3;
+        for (int i = 0; i < n; i++)
+        {
+            int row = i / 3;
+            int inRow = Math.Min(3, n - row * 3);
+            double x = cx - (inRow * 24 + (inRow - 1) * 4) / 2.0 + (i % 3) * 28;
+            double y = 34 - rows * 13 + row * 27;
+            <rect x="@F(x)" y="@F(y)" width="24" height="24" rx="6" fill="@(negative ? "var(--surface)" : "var(--x)")"
+                  stroke="@(negative ? "var(--neg)" : "none")" stroke-width="2.5" />
+            <!text x="@F(x + 12)" y="@F(y + 16.5)" text-anchor="middle" class="thermo__x @(negative ? "is-neg" : "")">@(negative ? "−x" : "x")</!text>
+        }
+    };
+}

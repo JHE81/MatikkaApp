@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sovelluksen palvelut ilman MAUI-riippuvuutta: paikallinen tallennus (SQLite),
+    edistymisen laskenta ja synkronointi. Toimii sekä MAUI-sovelluksessa että
+    selaimessa ajettavassa DevHostissa, ja on testattavissa tavallisilla yksikkötesteillä.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(MatikkaTargetFramework)</TargetFramework>
+    <!-- iOS-julkaisu karsii koodia, joten JSON käyttää lähdekoodigeneraattoria (ClientJsonContext). -->
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Matikka.Core\Matikka.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Matikka.Client.Tests" />
+  </ItemGroup>
+
+</Project>

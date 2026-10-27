@@ -1,0 +1,85 @@
+@*
+    Lukusuora: nolla korostettuna, negatiivinen puoli viileä ja positiivinen lämmin. Hahmo hyppää
+    luvusta toiseen kaarella, ja aiemmat hypyt jäävät näkyviin. Negatiivisella kertominen
+    välähdyttää peililinjaa nollan kohdalla.
+*@
+<div class="nline">
+    <svg class="nline__svg" viewBox="0 0 @W @H" aria-hidden="true">
+        <rect x="@F(X(Lo))" y="@F(AxisY - 6)" width="@F(Math.Max(0, X(Math.Min(0, Hi)) - X(Lo)))" height="12" rx="6" fill="var(--pos)" opacity="0.16" />
+        <rect x="@F(X(Math.Max(0, Lo)))" y="@F(AxisY - 6)" width="@F(Math.Max(0, X(Hi) - X(Math.Max(0, Lo))))" height="12" rx="6" fill="var(--x)" opacity="0.18" />
+        <line x1="@F(X(Lo))" y1="@AxisY" x2="@F(X(Hi))" y2="@AxisY" stroke="var(--ink)" stroke-width="2" stroke-linecap="round" />
+
+        @for (int v = Lo; v <= Hi; v++)
+        {
+            bool major = v % LabelStep == 0;
+            if (!major && Hi - Lo > 40)
+                continue;
+            <line x1="@F(X(v))" y1="@F(AxisY - (major ? 7 : 4))" x2="@F(X(v))" y2="@F(AxisY + (major ? 7 : 4))"
+                  stroke="var(--ink)" stroke-width="@(v == 0 ? 3 : 1.5)" opacity="@(major ? 0.85 : 0.4)" />
+            @if (major)
+            {
+                <!text x="@F(X(v))" y="@F(AxisY + 26)" text-anchor="middle" class="nline__label @(v == 0 ? "is-zero" : "")">@NumberCard.Num(v)</!text>
+            }
+        }
+
+        @if (MirrorFlash)
+        {
+            <line class="nline__mirror @(MirrorVersion % 2 == 0 ? "flash-a" : "flash-b")" x1="@F(X(0))" y1="6" x2="@F(X(0))" y2="@F(AxisY + 10)"
+                  stroke="var(--accent)" stroke-width="2.5" stroke-dasharray="4 4" />
+        }
+
+        @for (int i = 0; i < Hops.Count; i++)
+        {
+            var (from, to) = Hops[i];
+            double x1 = X(from), x2 = X(to);
+            double lift = Math.Min(70, 18 + Math.Abs(x2 - x1) * 0.35);
+            bool last = i == Hops.Count - 1;
+            <path d="@($"M{F(x1)} {F(AxisY - 4)} Q{F((x1 + x2) / 2)} {F(AxisY - 4 - lift * 2)} {F(x2)} {F(AxisY - 4)}")"
+                  fill="none" stroke="var(--accent)" stroke-width="@(last ? 2.5 : 1.5)" stroke-dasharray="@(last ? "0" : "3 4")"
+                  opacity="@(last ? 0.9 : 0.45)" />
+        }
+
+        <g transform="translate(@F(X(Target)) @F(AxisY))">
+            <line x1="0" y1="0" x2="0" y2="-46" stroke="var(--ink)" stroke-width="2" />
+            <path d="M0 -46 L20 -40 L0 -34 Z" fill="var(--neg)" />
+        </g>
+    </svg>
+
+    <div class="nline__hero @(HopVersion > 0 ? (HopVersion % 2 == 0 ? "hop-a" : "hop-b") : "")"
+         style="left: @F(100 * X(Value) / W)%; top: @F(100 * AxisY / H)%">
+        <CharacterAvatar Id="@CharacterId" />
+    </div>
+</div>
+
+@code {
+    private const double W = 340;
+    private const double H = 120;
+    private const double AxisY = 84;
+    private const double Pad = 18;
+
+    [Parameter] public int Value { get; set; }
+
+    [Parameter] public int Target { get; set; }
+
+    [Parameter] public int Lo { get; set; } = -10;
+
+    [Parameter] public int Hi { get; set; } = 10;
+
+    /// <summary>Tehdyt hypyt (mistä, mihin).</summary>
+    [Parameter] public IReadOnlyList<(int From, int To)> Hops { get; set; } = Array.Empty<(int, int)>();
+
+    [Parameter] public string CharacterId { get; set; } = "napsu";
+
+    /// <summary>Kasvaa jokaisella hypyllä: käynnistää hyppyanimaation.</summary>
+    [Parameter] public int HopVersion { get; set; }
+
+    [Parameter] public bool MirrorFlash { get; set; }
+
+    [Parameter] public int MirrorVersion { get; set; }
+
+    private int LabelStep => Hi - Lo <= 24 ? 2 : Hi - Lo <= 60 ? 5 : 10;
+
+    private double X(int v) => Pad + (v - Lo) * (W - 2 * Pad) / Math.Max(1, Hi - Lo);
+
+    private static string F(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}

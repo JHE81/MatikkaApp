@@ -1,0 +1,52 @@
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@inject AppearanceService Appearance
+@implements IDisposable
+
+<div class="theme-root" data-theme="@_theme">
+    <div class="app">
+        @if (!IsHome)
+        {
+            <header class="topbar">
+                <a class="topbar__home" href="">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M15 5l-7 7 7 7" />
+                    </svg>
+                    Valikko
+                </a>
+                <SyncBadge />
+            </header>
+        }
+        <main class="screen">
+            @Body
+        </main>
+    </div>
+</div>
+
+@code {
+    private string _theme = AppearanceService.DefaultTheme;
+
+    private bool IsHome => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?')[0].Length == 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        Appearance.Changed += OnThemeChanged;
+        _theme = await Appearance.GetThemeAsync();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    private void OnThemeChanged() => InvokeAsync(async () =>
+    {
+        _theme = await Appearance.GetThemeAsync();
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        Appearance.Changed -= OnThemeChanged;
+    }
+}

@@ -1,0 +1,86 @@
+@*
+    Koodipolun kenttä: pimeä labyrintti. Kivimuurit ovat esteitä, portaali on maali ja
+    kristallit pitää kerätä. Vapailla ruuduilla on pisteitä, joita hahmo napsii kulkiessaan
+    (pelkkää palautetta, ei vaikuta tulokseen). Hahmo kääntyy kulkusuuntaan.
+*@
+<div class="cmap" style="--n: @Map.Width" role="img" aria-label="@Label">
+    <div class="cmap__grid" aria-hidden="true">
+        @for (int y = 0; y < Map.Height; y++)
+        {
+            @for (int x = 0; x < Map.Width; x++)
+            {
+                var cell = new Cell(x, y);
+                bool wall = Map.IsTree(cell);
+                bool pellet = !wall && cell != Map.Goal && cell != Map.Start && !Map.Berries.Contains(cell) && !Visited.Contains(cell);
+                <span class="cmap__cell @(wall ? "cmap__cell--wall" : "") @(_hint.Contains(cell) ? "cmap__cell--hint" : "")">
+                    @if (cell == Map.Goal)
+                    {
+                        <svg viewBox="0 0 24 24" class="cmap__portal">
+                            <circle cx="12" cy="12" r="9.5" fill="none" stroke="#3FE0D0" stroke-width="2.2" opacity="0.45" />
+                            <circle cx="12" cy="12" r="6.5" fill="none" stroke="#7CF5E8" stroke-width="2.2" />
+                            <circle cx="12" cy="12" r="3" fill="#C9FFF8" />
+                        </svg>
+                    }
+                    else if (pellet)
+                    {
+                        <span class="cmap__pellet"></span>
+                    }
+                </span>
+            }
+        }
+    </div>
+
+    <div class="cmap__layer" aria-hidden="true">
+        @for (int i = 0; i < Map.Berries.Count; i++)
+        {
+            var crystal = Map.Berries[i];
+            <span class="cmap__crystal @(Collected.Contains(i) ? "is-collected" : "")" style="--c: @crystal.X; --r: @crystal.Y">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 3 L19 10 L12 21 L5 10 Z" fill="#FF6BD6" />
+                    <path d="M12 3 L15 10 L12 21 L9 10 Z" fill="#FFA6E8" />
+                    <path d="M5 10 H19" stroke="#FFD1F3" stroke-width="1" />
+                </svg>
+            </span>
+        }
+
+        <span class="cmap__hero @BumpCss" style="--c: @Position.X; --r: @Position.Y; --angle: @(Angle)deg">
+            <span class="cmap__body">
+                <CharacterAvatar Id="@CharacterId" />
+            </span>
+        </span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RouteMap Map { get; set; } = default!;
+
+    [Parameter] public string CharacterId { get; set; } = "napsu";
+
+    [Parameter] public Cell Position { get; set; }
+
+    /// <summary>Kertyvä kulma asteina (0 = itä). Ei pyöristetä 360:een, jotta käännös animoituu oikeaan suuntaan.</summary>
+    [Parameter] public int Angle { get; set; }
+
+    [Parameter] public IReadOnlyCollection<int> Collected { get; set; } = Array.Empty<int>();
+
+    /// <summary>Ruudut, joissa hahmo on käynyt tämän ajon aikana (niiltä pisteet on napsittu).</summary>
+    [Parameter] public IReadOnlyCollection<Cell> Visited { get; set; } = Array.Empty<Cell>();
+
+    [Parameter] public int BumpVersion { get; set; }
+
+    [Parameter] public bool Bumped { get; set; }
+
+    [Parameter] public IReadOnlyList<Cell>? HintRoute { get; set; }
+
+    private HashSet<Cell> _hint = new();
+
+    private string BumpCss => Bumped ? (BumpVersion % 2 == 0 ? "bump-a" : "bump-b") : "";
+
+    private string Label =>
+        $"Labyrintti {Map.Width} × {Map.Height}. Hahmo ruudussa {Position.X + 1}, {Position.Y + 1}. " +
+        $"Portaali ruudussa {Map.Goal.X + 1}, {Map.Goal.Y + 1}." +
+        (Map.Berries.Count > 0 ? $" Kristalleja {Map.Berries.Count - Collected.Count} jäljellä." : "");
+
+    protected override void OnParametersSet() =>
+        _hint = HintRoute == null ? new HashSet<Cell>() : new HashSet<Cell>(HintRoute);
+}

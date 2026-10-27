@@ -1,0 +1,27 @@
+# Paikallinen PostgreSQL + API.  Käynnistys:  docker compose up --build
+# API ilman tietokantaa (muistivarasto) onnistuu myös suoraan:  dotnet run --project src/Matikka.Api
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: matikka
+      POSTGRES_PASSWORD: matikka-dev
+      POSTGRES_DB: matikka
+    ports:
+      - "5432:5432"
+    volumes:
+      - matikka-db:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: .
+      dockerfile: src/Matikka.Api/Dockerfile
+    environment:
+      ConnectionStrings__Matikka: "Host=db;Database=matikka;Username=matikka;Password=matikka-dev"
+    ports:
+      - "5080:8080"
+    depends_on:
+      - db
+
+volumes:
+  matikka-db:

@@ -1,0 +1,17 @@
+@* Nuoli suuntaan. Piirretään SVG:nä, koska fontissa ei ole vaakanuolia. *@
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"
+     stroke-linejoin="round" aria-hidden="true" style="transform: rotate(@(Rotation)deg)">
+    <path d="M5 12h14M13 6l6 6-6 6" />
+</svg>
+
+@code {
+    [Parameter] public Direction Direction { get; set; }
+
+    private int Rotation => Direction switch
+    {
+        Direction.Left => 180,
+        Direction.Up => 270,
+        Direction.Down => 90,
+        _ => 0,
+    };
+}

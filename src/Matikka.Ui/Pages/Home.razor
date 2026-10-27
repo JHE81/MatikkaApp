@@ -1,0 +1,130 @@
+@page "/"
+@inject ProfileService Profiles
+@inject ProgressService Progress
+@implements IDisposable
+
+@if (!_loaded)
+{
+    return;
+}
+
+@if (_profile == null)
+{
+    <section class="hero">
+        <span class="wordmark"><ScaleIcon /> Matikkapeli</span>
+        <h1>Hei! Aloitetaan.</h1>
+        <p class="muted">Nimimerkki ja luokka jäävät vain tähän laitteeseen.</p>
+    </section>
+
+    <form class="card stack" @onsubmit="SaveProfile" @onsubmit:preventDefault>
+        <div class="field">
+            <label for="nickname">Nimimerkki</label>
+            <input id="nickname" class="input" maxlength="@ProfileService.MaxNicknameLength"
+                   autocomplete="off" @bind="_nickname" @bind:event="oninput" />
+        </div>
+
+        <div class="field">
+            <span id="grade-label">Luokka</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="grade-label">
+                @foreach (int g in new[] { 7, 8, 9 })
+                {
+                    int grade = g;
+                    <button type="button" class="btn" role="radio" aria-checked="@(_grade == grade ? "true" : "false")"
+                            aria-pressed="@(_grade == grade ? "true" : "false")" @onclick="() => _grade = grade">@grade.</button>
+                }
+            </div>
+        </div>
+
+        <div class="field">
+            <span>Värit</span>
+            <ThemePicker />
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--block btn--big"
+                disabled="@string.IsNullOrWhiteSpace(_nickname)">Aloita</button>
+    </form>
+}
+else
+{
+    <section class="hero">
+        <span class="wordmark"><ScaleIcon /> Matikkapeli</span>
+        <h1>Moi, @_profile.Nickname!</h1>
+    </section>
+
+    <div class="stat-row">
+        <div class="card stat">
+            <span class="stat__value">@_model!.TotalStars</span>
+            <span class="small muted">tähteä kerätty</span>
+        </div>
+        <div class="card stat">
+            <span class="stat__value">@_streak</span>
+            <span class="small muted">@(_streak == 1 ? "päivä putkeen" : "päivää putkeen")</span>
+        </div>
+    </div>
+
+    <a class="btn btn--primary btn--block btn--big" href="yhtalovaaka/pelaa">Pelaa</a>
+
+    @foreach (var card in GameCards)
+    {
+        <a class="card game-card" href="@card.Url">
+            <span class="game-card__icon">@card.Icon</span>
+            <span class="game-card__body">
+                <span class="game-card__name">@card.Game.Title</span>
+                <span class="small muted">Tasoja auki @LevelSelector.HighestUnlocked(card.Game, _model!) / @card.Game.Levels.Count</span>
+            </span>
+            <svg class="game-card__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9 5l7 7-7 7" />
+            </svg>
+        </a>
+    }
+
+    <p class="small muted">Tulossa: prosentit, funktiot ja geometria.</p>
+
+    <nav class="menu">
+        <a class="btn btn--block" href="edistyminen">Edistyminen</a>
+        <a class="btn btn--ghost btn--block" href="asetukset">Asetukset</a>
+    </nav>
+}
+
+@code {
+    private bool _loaded;
+    private PlayerProfile? _profile;
+    private ProgressModel? _model;
+    private int _streak;
+    private readonly (GameInfo Game, string Url, RenderFragment Icon)[] GameCards =
+    {
+        (EquationBalanceGame.Info, "yhtalovaaka", @<ScaleIcon />),
+        (EquationDominoGame.Info, "yhtalodomino", @<DominoIcon />),
+        (NumberHopGame.Info, "lukusuora", @<NumberHopIcon />),
+        (PowerMergeGame.Info, "potenssit", @<PowerIcon />),
+        (CodePathGame.Info, "koodipolku", @<CodePathIcon />),
+    };
+    private string _nickname = "";
+    private int _grade = 7;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Progress.Changed += OnChanged;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _profile = await Profiles.GetAsync();
+        _model = await Progress.GetModelAsync();
+        _streak = _model.CurrentStreak(Progress.Clock.GetLocalNow().Date);
+        _loaded = true;
+    }
+
+    private async Task SaveProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_nickname))
+            return;
+        _profile = await Profiles.SaveAsync(_nickname, _grade);
+    }
+
+    private void OnChanged() => InvokeAsync(async () => { await LoadAsync(); StateHasChanged(); });
+
+    public void Dispose() => Progress.Changed -= OnChanged;
+}

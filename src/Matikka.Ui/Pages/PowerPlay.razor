@@ -1,0 +1,313 @@
+@page "/potenssit/pelaa"
+@page "/potenssit/pelaa/{Level:int}"
+@inject ProgressService Progress
+
+@if (_session == null)
+{
+    return;
+}
+
+<div class="hud">
+    <span class="hud__level">Taso @_level.Number: @_level.Name</span>
+    <span class="hud__moves" title="Siirrot / kolmen tähden raja">@_session.MoveCount / @_session.Puzzle.Par</span>
+</div>
+
+<section class="card goal-card">
+    <span class="goal-card__label">@(_session.Puzzle.Goals.Count == 1 ? "Kokoa laudalle" : "Kokoa laudalle yhtä aikaa")</span>
+    <span class="goal-card__tiles">
+        @foreach (var goal in _session.Puzzle.Goals)
+        {
+            bool done = _session.Current.Contains(goal);
+            <span class="ptile-face goal-chip @FaceCss(goal.ToTile()) @(done ? "is-done" : "")">
+                <span>@PowerNotation.Goal(goal, Neg)</span>
+            </span>
+        }
+    </span>
+</section>
+
+<div class="pboard @BumpCss" style="--n: @_session.Current.Size" tabindex="0"
+     role="application" aria-roledescription="pelilauta"
+     aria-label="Pelilauta. Pyyhkäise laattoja tai käytä nuolinäppäimiä."
+     @onpointerdown="PointerDown" @onpointerup="PointerUp" @onpointercancel="() => _pointerDown = false"
+     @onkeydown="KeyDown">
+    <div class="pboard__grid" aria-hidden="true">
+        @for (int i = 0; i < _session.Current.Size * _session.Current.Size; i++)
+        {
+            <span class="pboard__cell"></span>
+        }
+    </div>
+    <div class="pboard__tiles">
+        @foreach (var (tile, row, col) in _session.Current.Tiles.OrderBy(t => t.Tile.Id))
+        {
+            <div class="ptile" @key="tile.Id" style="--r: @row; --c: @col">
+                <div class="ptile-face @FaceCss(tile) @PopCss(tile.Id) @(_goalIds.Contains(tile.Id) ? "is-goal" : "")">
+                    <span>@PowerNotation.Tile(tile, Neg)</span>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<div class="merge-log" aria-live="polite">
+    @if (_hintText != null)
+    {
+        <span class="merge-log__hint">@((MarkupString)_hintText)</span>
+    }
+    else if (_session.LastMerges.Count > 0)
+    {
+        @foreach (var merge in _session.LastMerges.Take(3))
+        {
+            <span class="merge-log__item">@PowerNotation.Formula(merge, Neg)</span>
+        }
+    }
+    else
+    {
+        <span class="muted">@((MarkupString)IdleText)</span>
+    }
+</div>
+
+@if (_session.IsSolved)
+{
+    <section class="card solved" aria-live="assertive">
+        <h2>Koottu!</h2>
+        <Stars Count="_session.Stars" Big="true" />
+        <p class="muted">@SolvedComment</p>
+        <button type="button" class="btn btn--primary btn--block btn--big" @onclick="NextPuzzle">Seuraava pulma</button>
+        <a class="btn btn--ghost btn--block" href="potenssit">Tasot</a>
+    </section>
+}
+else if (_session.IsDeadEnd)
+{
+    <section class="card dead-end" role="alert">
+        <p><strong>Tavoitetta ei saa enää koottua.</strong> Kumoa siirtoja tai aloita alusta.</p>
+        <div class="segmented">
+            <button type="button" class="btn" @onclick="Undo">Kumoa</button>
+            <button type="button" class="btn btn--primary" @onclick="Restart">Alusta</button>
+        </div>
+    </section>
+}
+else
+{
+    <div class="arrows" aria-label="Siirrot">
+        @foreach (var (dir, name) in Arrows)
+        {
+            var d = dir;
+            <button type="button" class="btn arrows__btn @(_hint == d ? "is-hint" : "")" aria-label="@name" @onclick="() => Move(d)">
+                <ArrowIcon Direction="d" />
+            </button>
+        }
+    </div>
+
+    <div class="tools">
+        <button type="button" class="btn" disabled="@(!_session.CanUndo)" @onclick="Undo">Kumoa</button>
+        <button type="button" class="btn" disabled="@(_session.MoveCount == 0)" @onclick="Restart">Alusta</button>
+        <button type="button" class="btn" @onclick="Hint">Vihje</button>
+        <button type="button" class="btn btn--ghost" @onclick="Skip">Ohita</button>
+    </div>
+}
+
+@code {
+    private static readonly GameInfo Game = PowerMergeGame.Info;
+
+    private static readonly (Direction Dir, string Name)[] Arrows =
+    {
+        (Direction.Left, "Vasemmalle"),
+        (Direction.Up, "Ylös"),
+        (Direction.Down, "Alas"),
+        (Direction.Right, "Oikealle"),
+    };
+
+    private const double SwipeThreshold = 24;
+
+    private PowerSession? _session;
+    private LevelInfo _level = Game.Levels[0];
+    private HashSet<int> _popIds = new();
+    private bool _popParity;
+    private IReadOnlyCollection<int> _goalIds = Array.Empty<int>();
+    private Direction? _hint;
+    private string? _hintText;
+    private bool _bump;
+    private int _bumpVersion;
+    private bool _pointerDown;
+    private double _downX;
+    private double _downY;
+    private bool _recorded;
+    private int? _startedFor = -1;
+    private readonly Stopwatch _timer = new();
+    private readonly SeededRandom _random = new(Random.Shared.NextInt64());
+
+    /// <summary>Kiinteä taso tasolistasta. Null = valitaan adaptiivisesti.</summary>
+    [Parameter] public int? Level { get; set; }
+
+    private bool Neg => _session!.Puzzle.NegativeNotation;
+
+    private string IdleText => _session!.Puzzle.Level switch
+    {
+        1 => "Kun samankantaiset potenssit kerrotaan, eksponentit lasketaan yhteen.",
+        2 => "Vain samankantaiset yhdistyvät. Eri kanta toimii esteenä.",
+        3 => "Jakajalaatta vähentää eksponenttia.",
+        4 => "Kun jaat potenssin samalla potenssilla, eksponentiksi tulee nolla.",
+        5 => "Korotuslaatta kertoo eksponentin.",
+        6 => "Negatiivinen eksponentti tarkoittaa jakajaa: a<sup>−2</sup> = 1 : a<sup>2</sup>.",
+        _ => "Kokoa molemmat tavoitteet laudalle yhtä aikaa.",
+    };
+
+    private string SolvedComment => _session!.Stars switch
+    {
+        3 when _session.MoveCount < _session.Puzzle.Par => "Lyhyempi kuin malliratkaisu!",
+        3 => "Suorin reitti.",
+        2 when _session.HintsUsed > 0 => "Vihjeellä enintään kaksi tähteä.",
+        _ => $"Malliratkaisussa {_session.Puzzle.Par} siirtoa. Löydätkö lyhyemmän reitin?",
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_startedFor == Level && _session != null)
+            return;
+
+        _startedFor = Level;
+        await NextPuzzle();
+    }
+
+    private async Task NextPuzzle()
+    {
+        ProgressModel model = await Progress.GetModelAsync();
+
+        int number = Level is { } fixedLevel && LevelSelector.IsUnlocked(Game, model, fixedLevel)
+            ? fixedLevel
+            : Level.HasValue
+                ? LevelSelector.HighestUnlocked(Game, model)
+                : LevelSelector.ChooseNext(Game, model, _random);
+
+        _level = Game.GetLevel(number);
+        _session = new PowerSession(PowerPuzzleGenerator.Generate(number, _random.NextSeed()));
+        _recorded = false;
+        ResetTransient();
+        _timer.Restart();
+    }
+
+    private void Move(Direction direction)
+    {
+        if (_session == null || _session.IsSolved)
+            return;
+
+        if (!_session.TryMove(direction))
+        {
+            // Siirto ei muuttanut mitään: lauta nytkähtää, siirtoa ei lasketa.
+            _bump = true;
+            _bumpVersion++;
+            return;
+        }
+
+        _bump = false;
+        _hint = null;
+        _hintText = null;
+        _popIds = _session.LastMerges.Select(m => m.Result.Id).ToHashSet();
+        _popParity = !_popParity;
+        _goalIds = _session.IsSolved ? _session.GoalTileIds : Array.Empty<int>();
+
+        if (_session.IsSolved)
+            _ = RecordAsync(GameOutcome.Solved);
+    }
+
+    private void Undo()
+    {
+        if (_session!.Undo())
+            ResetTransient();
+    }
+
+    private void Restart()
+    {
+        _session!.Restart();
+        ResetTransient();
+    }
+
+    private void Hint()
+    {
+        Direction? hint = _session!.TakeHint();
+        if (hint is not { } direction)
+            return;
+
+        _hint = direction;
+        MergeInfo? first = _session.Current.Slide(direction).Merges.FirstOrDefault();
+        string where = Arrows.First(a => a.Dir == direction).Name.ToLowerInvariant();
+        _hintText = first == null
+            ? $"Vihje: pyyhkäise {where}."
+            : $"Vihje: pyyhkäise {where}: {PowerNotation.FormulaHtml(first, Neg)}";
+    }
+
+    private async Task Skip()
+    {
+        await RecordAsync(GameOutcome.Skipped);
+        await NextPuzzle();
+    }
+
+    private void ResetTransient()
+    {
+        _popIds = new();
+        _goalIds = Array.Empty<int>();
+        _hint = null;
+        _hintText = null;
+        _bump = false;
+    }
+
+    private void PointerDown(PointerEventArgs e)
+    {
+        _pointerDown = true;
+        _downX = e.ClientX;
+        _downY = e.ClientY;
+    }
+
+    private void PointerUp(PointerEventArgs e)
+    {
+        if (!_pointerDown)
+            return;
+        _pointerDown = false;
+
+        double dx = e.ClientX - _downX;
+        double dy = e.ClientY - _downY;
+        if (Math.Max(Math.Abs(dx), Math.Abs(dy)) < SwipeThreshold)
+            return;
+
+        Move(Math.Abs(dx) > Math.Abs(dy)
+            ? (dx > 0 ? Direction.Right : Direction.Left)
+            : (dy > 0 ? Direction.Down : Direction.Up));
+    }
+
+    private void KeyDown(KeyboardEventArgs e)
+    {
+        Direction? direction = e.Key switch
+        {
+            "ArrowLeft" => Direction.Left,
+            "ArrowRight" => Direction.Right,
+            "ArrowUp" => Direction.Up,
+            "ArrowDown" => Direction.Down,
+            _ => null,
+        };
+
+        if (direction is { } d)
+            Move(d);
+    }
+
+    private string BumpCss => _bump ? (_bumpVersion % 2 == 0 ? "bump-a" : "bump-b") : "";
+
+    private string PopCss(int id) => _popIds.Contains(id) ? (_popParity ? "pop-a" : "pop-b") : "";
+
+    private string FaceCss(PowerTile tile) => tile.Kind switch
+    {
+        TileKind.One => "ptile-face--one",
+        TileKind.Raise => "ptile-face--raise",
+        _ => $"ptile-face--{tile.Base}" + (tile.Exponent < 0 ? " ptile-face--hollow" : ""),
+    };
+
+    private async Task RecordAsync(GameOutcome outcome)
+    {
+        if (_recorded)
+            return;
+        _recorded = true;
+        _timer.Stop();
+
+        GameEvent e = _session!.ToEvent(outcome, Guid.NewGuid(), _timer.ElapsedMilliseconds, Progress.Clock.GetLocalNow());
+        await Progress.RecordAsync(e);
+    }
+}

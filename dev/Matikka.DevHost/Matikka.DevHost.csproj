@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Kehitystyökalu: ajaa saman käyttöliittymän (Matikka.Ui) tavallisessa selaimessa.
+    Nopein tapa kehittää pelejä: dotnet watch, muutokset näkyvät heti, ei emulaattoria.
+    Ei julkaista sellaisenaan. Tästä voi myöhemmin kasvaa verkkoversio.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(MatikkaTargetFramework)</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Matikka.Ui\Matikka.Ui.csproj" />
+  </ItemGroup>
+
+</Project>

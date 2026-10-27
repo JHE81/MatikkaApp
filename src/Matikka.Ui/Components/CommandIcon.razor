@@ -1,0 +1,39 @@
+@* Ohjelmalohkojen kuvakkeet. *@
+@if (Kind == CommandKind.Call)
+{
+    <span class="cmd-letter" aria-hidden="true">A</span>
+}
+else
+{
+    <svg class="cmd-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        @switch (Kind)
+        {
+            case CommandKind.Forward:
+                <path d="M12 20V5M6 11l6-6 6 6" />
+                break;
+            case CommandKind.TurnLeft:
+                <path d="M17 20v-6a5 5 0 0 0-5-5H5M9 5L5 9l4 4" />
+                break;
+            case CommandKind.TurnRight:
+                <path d="M7 20v-6a5 5 0 0 1 5-5h7M15 5l4 4-4 4" />
+                break;
+            default:
+                <path d="M17 3l3 3-3 3M20 6H9a5 5 0 0 0-5 5M7 21l-3-3 3-3M4 18h11a5 5 0 0 0 5-5" />
+                break;
+        }
+    </svg>
+}
+
+@code {
+    [Parameter] public CommandKind Kind { get; set; }
+
+    public static string Name(CommandKind kind) => kind switch
+    {
+        CommandKind.Forward => "Eteen",
+        CommandKind.TurnLeft => "Vasen",
+        CommandKind.TurnRight => "Oikea",
+        CommandKind.Repeat => "Toista",
+        _ => "Aliohjelma",
+    };
+}

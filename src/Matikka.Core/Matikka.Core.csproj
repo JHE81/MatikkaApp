@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Pelilogiikka ilman riippuvuuksia käyttöliittymään, tallennukseen tai verkkoon.
+
+    netstandard2.1 + C# 9 on tietoinen valinta: Unity lukee netstandard2.1-kirjastoja ja
+    kääntää C# 9 -lähdekoodia, joten sama logiikka (säännöt, generaattorit, Elo, edistyminen)
+    siirtyy sellaisenaan mahdolliseen Unity-versioon. Älä lisää tänne NuGet-paketteja.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Matikka.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Matikka.Core.Tests" />
+  </ItemGroup>
+
+</Project>

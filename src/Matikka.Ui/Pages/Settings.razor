@@ -1,0 +1,140 @@
+@page "/asetukset"
+@inject ProfileService Profiles
+@inject SyncService Sync
+@inject NavigationManager Navigation
+@implements IDisposable
+
+<h1>Asetukset</h1>
+
+@if (_profile != null)
+{
+    <form class="card stack" @onsubmit="SaveProfile" @onsubmit:preventDefault>
+        <h2>Profiili</h2>
+        <div class="field">
+            <label for="nickname">Nimimerkki</label>
+            <input id="nickname" class="input" maxlength="@ProfileService.MaxNicknameLength" @bind="_nickname" />
+        </div>
+        <div class="field">
+            <span id="grade-label">Luokka</span>
+            <div class="segmented" role="radiogroup" aria-labelledby="grade-label">
+                @foreach (int g in new[] { 7, 8, 9 })
+                {
+                    int grade = g;
+                    <button type="button" class="btn" role="radio" aria-checked="@(_grade == grade ? "true" : "false")"
+                            aria-pressed="@(_grade == grade ? "true" : "false")" @onclick="() => _grade = grade">@grade.</button>
+                }
+            </div>
+        </div>
+        <button type="submit" class="btn btn--block">Tallenna profiili</button>
+        @if (_saved)
+        {
+            <p class="small muted" role="status">Profiili tallennettu.</p>
+        }
+    </form>
+}
+
+<section class="card">
+    <h2>Värit</h2>
+    <ThemePicker />
+</section>
+
+<section class="card">
+    <h2>Hahmo</h2>
+    <CharacterPicker />
+</section>
+
+<section class="card">
+    <h2>Tiedot ja yksityisyys</h2>
+    <p>Pelitulokset tallentuvat ensin tähän laitteeseen. Palvelimelle lähtevät vain tulokset nimettömän tunnisteen kanssa: ei nimimerkkiä, luokkaa eikä yhteystietoja.</p>
+
+    @if (Sync.State != SyncState.Disabled)
+    {
+        <p><SyncBadge /></p>
+        @if (Sync.LastSyncedAt is { } at)
+        {
+            <p class="small muted">Viimeksi tallennettu palvelimelle @at.ToString("d.M. 'klo' H.mm")</p>
+        }
+        <button type="button" class="btn btn--block" disabled="@(Sync.State == SyncState.Syncing)" @onclick="SyncNow">Tallenna palvelimelle nyt</button>
+    }
+    else
+    {
+        <p class="small muted">Palvelintallennus ei ole käytössä: kaikki tiedot ovat vain tässä laitteessa.</p>
+    }
+</section>
+
+<section class="card">
+    <h2>Poista tiedot</h2>
+    <p>Poistaa profiilin, kaikki tulokset tästä laitteesta ja palvelimelta. Tätä ei voi perua.</p>
+
+    @if (!_confirmDelete)
+    {
+        <button type="button" class="btn btn--danger btn--block" @onclick="() => _confirmDelete = true">Poista kaikki tiedot</button>
+    }
+    else
+    {
+        <p><strong>Haluatko varmasti poistaa kaikki tiedot?</strong></p>
+        <div class="segmented">
+            <button type="button" class="btn" @onclick="() => _confirmDelete = false">Peru</button>
+            <button type="button" class="btn btn--danger" disabled="@_deleting" @onclick="DeleteAll">Poista</button>
+        </div>
+    }
+
+    @if (_deleteError != null)
+    {
+        <p class="form-error" role="alert">@_deleteError</p>
+    }
+</section>
+
+@code {
+    private PlayerProfile? _profile;
+    private string _nickname = "";
+    private int _grade = 7;
+    private bool _saved;
+    private bool _confirmDelete;
+    private bool _deleting;
+    private string? _deleteError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Sync.StateChanged += OnChanged;
+        _profile = await Profiles.GetAsync();
+        if (_profile != null)
+        {
+            _nickname = _profile.Nickname;
+            _grade = _profile.Grade;
+        }
+    }
+
+    private async Task SaveProfile()
+    {
+        if (string.IsNullOrWhiteSpace(_nickname))
+            return;
+        _profile = await Profiles.SaveAsync(_nickname, _grade);
+        _saved = true;
+    }
+
+    private Task SyncNow() => Sync.SyncAsync();
+
+    private async Task DeleteAll()
+    {
+        _deleting = true;
+        _deleteError = null;
+        try
+        {
+            await Sync.DeleteAllDataAsync();
+            Navigation.NavigateTo("", replace: true);
+        }
+        catch (HttpRequestException)
+        {
+            _deleteError = "Palvelimeen ei saatu yhteyttä, joten mitään ei poistettu. Yritä uudelleen, kun verkko toimii.";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Sync.StateChanged -= OnChanged;
+}

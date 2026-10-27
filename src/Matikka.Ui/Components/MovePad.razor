@@ -1,0 +1,171 @@
+@*
+    Siirtopaneeli: valitse laskutoimitus ja luku, ja tee se molemmille puolille.
+    Ei valmiita "oikeita vastauksia" -nappeja: pelaaja muotoilee siirron itse, kuten vihkossa.
+*@
+<div class="pad @(_shake ? "pad--shake" : "")" @key="_shakeVersion">
+    <div class="pad__ops" role="radiogroup" aria-label="Laskutoimitus">
+        @foreach (var (op, symbol, name) in Ops)
+        {
+            <button type="button" class="btn" role="radio" aria-pressed="@(_op == op ? "true" : "false")"
+                    aria-checked="@(_op == op ? "true" : "false")" aria-label="@name" @onclick="() => SelectOp(op)">
+                @symbol
+            </button>
+        }
+    </div>
+
+    <div class="card pad__readout" aria-live="polite">
+        <div>
+            @if (Error == null)
+            {
+                <div class="pad__readout-text">Tee molemmille puolille</div>
+            }
+            else
+            {
+                <div class="pad__readout-text pad__readout-text--error" role="alert">@Error</div>
+            }
+            <div class="pad__readout-move">@(Current?.ToString() ?? PlaceholderText)</div>
+        </div>
+        <button type="button" class="btn btn--go" disabled="@(Current == null)" @onclick="Submit">Tee</button>
+    </div>
+
+    <div class="pad__keys">
+        @for (int d = 1; d <= 9; d++)
+        {
+            int digit = d;
+            <button type="button" class="btn" @onclick="() => AddDigit(digit)">@digit</button>
+            @if (digit % 3 == 0)
+            {
+                @if (digit == 3)
+                {
+                    <button type="button" class="btn" aria-pressed="@(_isX ? "true" : "false")" disabled="@(!XAllowed)"
+                            aria-label="x-termi" @onclick="ToggleX">x</button>
+                }
+                else if (digit == 6)
+                {
+                    <button type="button" class="btn" aria-pressed="@(_negative ? "true" : "false")"
+                            aria-label="Vaihda etumerkki" @onclick="ToggleSign">+/-</button>
+                }
+                else
+                {
+                    <button type="button" class="btn" aria-label="Pyyhi" @onclick="Backspace">&lt;</button>
+                }
+            }
+        }
+        <button type="button" class="btn" style="grid-column: span 3" @onclick="() => AddDigit(0)">0</button>
+        <button type="button" class="btn" aria-label="Tyhjennä" @onclick="Clear">C</button>
+    </div>
+</div>
+
+@code {
+    private static readonly (Operation Op, string Symbol, string Name)[] Ops =
+    {
+        (Operation.Add, "+", "Lisää"),
+        (Operation.Subtract, "-", "Vähennä"),
+        (Operation.Multiply, "·", "Kerro"),
+        (Operation.Divide, ":", "Jaa"),
+    };
+
+    private Operation _op = Operation.Subtract;
+    private string _digits = "";
+    private bool _negative;
+    private bool _isX;
+    private bool _shake;
+    private int _shakeVersion;
+
+    /// <summary>Kutsutaan, kun pelaaja painaa Tee. Palauttaa virheviestin tai null, jos siirto onnistui.</summary>
+    [Parameter, EditorRequired] public Func<BalanceMove, string?> OnMove { get; set; } = default!;
+
+    public string? Error { get; private set; }
+
+    private bool XAllowed => _op is Operation.Add or Operation.Subtract;
+
+    private string PlaceholderText => Ops.First(o => o.Op == _op).Symbol + " ?";
+
+    private BalanceMove? Current
+    {
+        get
+        {
+            int value;
+            if (_digits.Length == 0)
+            {
+                if (!_isX)
+                    return null;
+                value = 1; // pelkkä "x" tarkoittaa 1x
+            }
+            else
+            {
+                value = int.Parse(_digits);
+            }
+
+            if (_negative)
+                value = -value;
+
+            return new BalanceMove(_op, value, _isX && XAllowed);
+        }
+    }
+
+    /// <summary>Täyttää paneeliin valmiin siirron (vihje).</summary>
+    public void Prefill(BalanceMove move)
+    {
+        _op = move.Operation;
+        _isX = move.IsXTerm;
+        _negative = move.Value < 0;
+        _digits = Math.Abs(move.Value).ToString();
+        Error = null;
+        StateHasChanged();
+    }
+
+    private void SelectOp(Operation op)
+    {
+        _op = op;
+        if (!XAllowed)
+            _isX = false;
+        Error = null;
+    }
+
+    private void AddDigit(int digit)
+    {
+        if (_digits.Length >= 3)
+            return;
+
+        _digits = _digits == "0" ? digit.ToString() : _digits + digit;
+        Error = null;
+    }
+
+    private void Backspace()
+    {
+        if (_digits.Length > 0)
+            _digits = _digits[..^1];
+        Error = null;
+    }
+
+    private void Clear()
+    {
+        _digits = "";
+        _negative = false;
+        _isX = false;
+        Error = null;
+    }
+
+    private void ToggleSign() => _negative = !_negative;
+
+    private void ToggleX() => _isX = XAllowed && !_isX;
+
+    private void Submit()
+    {
+        if (Current is not { } move)
+            return;
+
+        Error = OnMove(move);
+        if (Error == null)
+        {
+            Clear();
+            _shake = false;
+        }
+        else
+        {
+            _shake = true;
+            _shakeVersion++;
+        }
+    }
+}

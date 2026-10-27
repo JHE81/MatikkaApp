@@ -1,0 +1,25 @@
+@inject CharacterService Characters
+
+<div class="characters" role="radiogroup" aria-label="Hahmo">
+    @foreach (var character in CharacterService.Characters)
+    {
+        bool selected = character.Id == _current;
+        <button type="button" class="character-option" role="radio" aria-checked="@(selected ? "true" : "false")"
+                @onclick="() => SelectAsync(character.Id)">
+            <CharacterAvatar Id="@character.Id" />
+            <span>@character.Name</span>
+        </button>
+    }
+</div>
+
+@code {
+    private string _current = CharacterService.DefaultCharacter;
+
+    protected override async Task OnInitializedAsync() => _current = (await Characters.GetAsync()).Id;
+
+    private async Task SelectAsync(string id)
+    {
+        _current = id;
+        await Characters.SetAsync(id);
+    }
+}

@@ -1,0 +1,18 @@
+@* Tähdet 0–3. Saamatta jääneet näkyvät haaleina, jotta asteikko hahmottuu. *@
+<span class="stars @(Big ? "stars--big" : "")" role="img" aria-label="@($"{Count} / 3 tähteä")">
+    @for (int i = 1; i <= 3; i++)
+    {
+        bool on = i <= Count;
+        <svg class="@(on ? "star--on" : "")" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2.6l2.85 5.9 6.45.86-4.72 4.48 1.19 6.4L12 17.1l-5.77 3.14 1.19-6.4L2.7 9.36l6.45-.86z"
+                  fill="@(on ? "var(--star)" : "var(--line)")" stroke="@(on ? "var(--star)" : "var(--line)")"
+                  stroke-width="1.6" stroke-linejoin="round" />
+        </svg>
+    }
+</span>
+
+@code {
+    [Parameter] public int Count { get; set; }
+
+    [Parameter] public bool Big { get; set; }
+}
